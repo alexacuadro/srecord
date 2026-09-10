@@ -668,13 +668,16 @@ class _DetallePartesListeroScreenState extends State<DetallePartesListeroScreen>
           ],
         ),
         subtitle: Text("Tiro Ganador: $tiro", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white70)),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(bancoGanaTotal ? "GANA BANCO" : "DEBE BANCO", style: TextStyle(fontSize: 7, fontWeight: FontWeight.w900, color: bancoGanaTotal ? Colors.lightGreenAccent : Colors.amberAccent)),
-            Text("\$${RecaudacionService.formatMoney(saldoFinal.abs())}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
-          ],
+        trailing: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(bancoGanaTotal ? "GANA BANCO" : "DEBE BANCO", style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: bancoGanaTotal ? Colors.lightGreenAccent : Colors.amberAccent)),
+              Text("\$${RecaudacionService.formatMoney(saldoFinal.abs())}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+            ],
+          ),
         ),
         childrenPadding: const EdgeInsets.all(16),
         children: [

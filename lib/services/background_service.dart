@@ -222,15 +222,9 @@ class BackgroundService {
             }
             
             if (userRole == "LISTERO" && data['listero_pin'] == listeroPin) {
-              if (payload.eventType == PostgresChangeEvent.insert) {
-                final int notiId = (data['uuid']?.hashCode ?? 201).abs() % 100000;
-                await notificationService.showNotification(
-                  id: notiId,
-                  title: "📑 NUEVO PARTE DISPONIBLE",
-                  body: "Se ha generado tu parte del día ${data['fecha']} (${data['seccion']}).",
-                  payloadKey: "parte_new_${data['uuid']}",
-                );
-              } else if (payload.eventType == PostgresChangeEvent.update && data['publicado'] == 1) {
+              final bool esPublicado = (data['publicado'] == 1 || data['publicado'] == true || data['publicado'] == '1');
+              
+              if (esPublicado) {
                 final double balance = (data['total_dia'] as num?)?.toDouble() ?? 0.0;
                 final double fondoAnt = (data['fondo_anterior'] as num?)?.toDouble() ?? 0.0;
                 final double liq = (data['liquidacion'] as num?)?.toDouble() ?? 0.0;
@@ -259,7 +253,7 @@ class BackgroundService {
                 final int notiId = (data['uuid']?.hashCode ?? 202).abs() % 100000;
                 await notificationService.showNotification(
                   id: notiId,
-                  title: "✅ PARTE PUBLICADO ($lotName - $secName)",
+                  title: "✅ PARTE OFICIAL ENVIADO Y PUBLICADO ($lotName - $secName)",
                   body: "💰 Acumulado: \$${RecaudacionService.formatMoney(saldoFin.abs())} | Utilidad: \$${RecaudacionService.formatMoney(balance.abs())}",
                   bigText: bigTextStr,
                   payloadKey: "parte_pub_${data['uuid']}_${data['publicado']}",
