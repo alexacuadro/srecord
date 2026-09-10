@@ -159,7 +159,8 @@ class Alex {
        // Si el pulso es para mí o para todos, sincronizar
        if (targetPin == null || targetPin == "" || targetPin == myPin) {
          debugPrint("[ALEX_REMOTE] Pulso de sincronización recibido. Ejecutando Espejo...");
-         syncDataToCloud(isDeepSync: payload['deep'] ?? false);
+         await syncDataToCloud(isDeepSync: payload['deep'] ?? true);
+         _db.notifySyncUpdate(-999);
        }
     }).onBroadcast(event: 'TYPING_STATUS', callback: (payload) {
        _typingStatusController.add(payload);
