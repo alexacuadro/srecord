@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:srecord/services/database_helper.dart';
 import 'package:srecord/services/alex_api.dart';
 import 'package:srecord/screens/login_screen.dart';
+import 'package:srecord/screens/rent_config_screen.dart';
 import 'package:srecord/widgets/connection_icon.dart';
 import 'package:srecord/widgets/loteria_icon.dart';
 
@@ -248,6 +249,17 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    IconButton(
+                      icon: const Icon(Icons.alarm_on, color: Colors.amberAccent, size: 22),
+                      tooltip: "Configurar Cobro y Renta de App",
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => RentConfigScreen(bancoId: bankId, isProgramadorMode: true),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
                     IconButton(
                       icon: const Icon(Icons.tune_rounded, color: Color(0xFF38BDF8), size: 22),
                       tooltip: "Configurar Loterías Habilitadas",

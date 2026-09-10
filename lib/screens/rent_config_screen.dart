@@ -3,7 +3,14 @@ import 'package:intl/intl.dart';
 import 'package:srecord/services/rent_service.dart';
 
 class RentConfigScreen extends StatefulWidget {
-  const RentConfigScreen({super.key});
+  final String? bancoId;
+  final bool isProgramadorMode;
+
+  const RentConfigScreen({
+    super.key,
+    this.bancoId,
+    this.isProgramadorMode = false,
+  });
 
   @override
   State<RentConfigScreen> createState() => _RentConfigScreenState();
@@ -27,11 +34,11 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
   }
 
   Future<void> _loadConfig() async {
-    final m = await _rentService.getMonto();
-    final f = await _rentService.getFrecuencia();
-    final fi = await _rentService.getFechaInicio();
-    final up = await _rentService.getUltimoPagoFecha();
-    final sch = await _rentService.getAnnualSchedule();
+    final m = await _rentService.getMonto(bancoId: widget.bancoId);
+    final f = await _rentService.getFrecuencia(bancoId: widget.bancoId);
+    final fi = await _rentService.getFechaInicio(bancoId: widget.bancoId);
+    final up = await _rentService.getUltimoPagoFecha(bancoId: widget.bancoId);
+    final sch = await _rentService.getAnnualSchedule(bancoId: widget.bancoId);
 
     if (mounted) {
       setState(() {
@@ -47,6 +54,7 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
   }
 
   Future<void> _selectFechaInicio() async {
+    if (!widget.isProgramadorMode) return;
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _fechaInicio,
@@ -55,19 +63,19 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
       helpText: "SELECCIONE PRIMER DOMINGO PACTADO",
     );
     if (picked != null && picked != _fechaInicio) {
-      await _rentService.setFechaInicio(picked);
+      await _rentService.setFechaInicio(picked, bancoId: widget.bancoId);
       _loadConfig();
     }
   }
 
   Future<void> _togglePago(DateTime date, bool currentPaid) async {
     if (currentPaid) {
-      await _rentService.cancelarPago();
+      await _rentService.cancelarPago(bancoId: widget.bancoId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Pago cancelado/revertido.")));
       }
     } else {
-      await _rentService.registrarPago(date);
+      await _rentService.registrarPago(date, bancoId: widget.bancoId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text("¡Renta de \$${_monto.round()} USD registrada como LIQUIDADA!"),
@@ -86,23 +94,29 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final String titleText = widget.isProgramadorMode
+        ? "AJUSTE RENTA (BANCO: ${widget.bancoId ?? 'ACTIVO'})"
+        : "RENTAS Y COBROS DEL BANCO";
+
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.alarm_on, color: Colors.amberAccent),
-            SizedBox(width: 8),
-            Text("RENTAS Y COBROS DEL BANCO", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Icon(Icons.alarm_on, color: Colors.amberAccent),
+            const SizedBox(width: 8),
+            Expanded(child: Text(titleText, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
           ],
         ),
-        backgroundColor: Colors.blue.shade900,
-        foregroundColor: Colors.white,
+        backgroundColor: widget.isProgramadorMode ? Colors.black : Colors.blue.shade900,
+        foregroundColor: widget.isProgramadorMode ? const Color(0xFF38BDF8) : Colors.white,
       ),
+      backgroundColor: widget.isProgramadorMode ? const Color(0xFF020617) : null,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if (!widget.isProgramadorMode) _buildReadOnlyNotice(),
                 _buildConfigCard(),
                 const SizedBox(height: 20),
                 _sectionTitle("CALENDARIO ANUAL DE COBROS PACTADOS (${DateTime.now().year})"),
@@ -113,21 +127,56 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
     );
   }
 
+  Widget _buildReadOnlyNotice() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.lock, color: Colors.blue, size: 20),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "🔒 Los parámetros de este pacto son administrados exclusivamente por el Programador en la Consola Suprema.",
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blue),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _sectionTitle(String title) {
     return Text(
       title,
-      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.blue.shade900, letterSpacing: 1),
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w900,
+        color: widget.isProgramadorMode ? const Color(0xFF38BDF8) : Colors.blue.shade900,
+        letterSpacing: 1,
+      ),
     );
   }
 
   Widget _buildConfigCard() {
     return Card(
       elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: widget.isProgramadorMode ? const Color(0xFF0F172A) : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: widget.isProgramadorMode
+            ? const BorderSide(color: Color(0xFF38BDF8), width: 1)
+            : BorderSide.none,
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: Start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
@@ -137,8 +186,20 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text("Pacto de Renta de App", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Colors.blue.shade900)),
-                      const Text("Configuración de liquidez y cobro del servicio", style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      Text(
+                        "Pacto de Renta del Servicio",
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                          color: widget.isProgramadorMode ? Colors.white : Colors.blue.shade900,
+                        ),
+                      ),
+                      Text(
+                        widget.isProgramadorMode
+                            ? "Ajustes de Cobro Programados (Modo Programador Supremos)"
+                            : "Estado de Liquidez de la Plataforma",
+                        style: const TextStyle(fontSize: 10, color: Colors.grey),
+                      ),
                     ],
                   ),
                 ),
@@ -149,13 +210,27 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
             // Campo Monto USD
             Row(
               children: [
-                const Expanded(child: Text("Monto Pactado (USD):", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+                Expanded(
+                  child: Text(
+                    "Monto Pactado (USD):",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: widget.isProgramadorMode ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ),
                 SizedBox(
-                  width: 100,
+                  width: 110,
                   child: TextField(
                     controller: _montoController,
+                    enabled: widget.isProgramadorMode,
                     keyboardType: TextInputType.number,
                     textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: widget.isProgramadorMode ? const Color(0xFF38BDF8) : Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
                     decoration: InputDecoration(
                       prefixText: "\$ ",
                       suffixText: " USD",
@@ -164,8 +239,9 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                     onSubmitted: (val) async {
+                      if (!widget.isProgramadorMode) return;
                       final parsed = double.tryParse(val) ?? 100.0;
-                      await _rentService.setMonto(parsed);
+                      await _rentService.setMonto(parsed, bancoId: widget.bancoId);
                       _loadConfig();
                     },
                   ),
@@ -177,15 +253,32 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
             // Frecuencia
             Row(
               children: [
-                const Expanded(child: Text("Frecuencia de Pago:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+                Expanded(
+                  child: Text(
+                    "Frecuencia de Pago:",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: widget.isProgramadorMode ? Colors.white70 : Colors.black87,
+                    ),
+                  ),
+                ),
                 DropdownButton<RentFrequency>(
                   value: _frecuencia,
-                  onChanged: (val) async {
-                    if (val != null) {
-                      await _rentService.setFrecuencia(val);
-                      _loadConfig();
-                    }
-                  },
+                  dropdownColor: widget.isProgramadorMode ? const Color(0xFF0F172A) : Colors.white,
+                  style: TextStyle(
+                    color: widget.isProgramadorMode ? const Color(0xFF38BDF8) : Colors.black,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                  onChanged: widget.isProgramadorMode
+                      ? (val) async {
+                          if (val != null) {
+                            await _rentService.setFrecuencia(val, bancoId: widget.bancoId);
+                            _loadConfig();
+                          }
+                        }
+                      : null,
                   items: const [
                     DropdownMenuItem(value: RentFrequency.quincenalDomingo, child: Text("Un Domingo sí, otro no (Quincenal)")),
                     DropdownMenuItem(value: RentFrequency.semanalDomingo, child: Text("Todos los Domingos (Semanal)")),
@@ -202,15 +295,26 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("Primer Domingo Pactado:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    Text(DateFormat('EEEE d MMMM yyyy', 'es').format(_fechaInicio), style: const TextStyle(fontSize: 11, color: Colors.blueGrey)),
+                    Text(
+                      "Primer Domingo Pactado:",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: widget.isProgramadorMode ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                    Text(
+                      DateFormat('EEEE d MMMM yyyy', 'es').format(_fechaInicio),
+                      style: const TextStyle(fontSize: 11, color: Colors.blueGrey),
+                    ),
                   ],
                 ),
-                OutlinedButton.icon(
-                  onPressed: _selectFechaInicio,
-                  icon: const Icon(Icons.calendar_month, size: 18),
-                  label: const Text("CAMBIAR"),
-                ),
+                if (widget.isProgramadorMode)
+                  OutlinedButton.icon(
+                    onPressed: _selectFechaInicio,
+                    icon: const Icon(Icons.calendar_month, size: 18),
+                    label: const Text("CAMBIAR"),
+                  ),
               ],
             ),
           ],
@@ -264,16 +368,29 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
 
         return Card(
           elevation: status == "COBRO_HOY" ? 4 : 1,
-          color: status == "COBRO_HOY" ? Colors.amber.shade50 : null,
+          color: widget.isProgramadorMode
+              ? const Color(0xFF0F172A)
+              : (status == "COBRO_HOY" ? Colors.amber.shade50 : null),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: status == "COBRO_HOY" ? BorderSide(color: Colors.amber.shade700, width: 2) : BorderSide.none,
+            side: status == "COBRO_HOY"
+                ? BorderSide(color: Colors.amber.shade700, width: 2)
+                : (widget.isProgramadorMode
+                    ? BorderSide(color: Colors.white10, width: 1)
+                    : BorderSide.none),
           ),
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             leading: Icon(badgeIcon, color: badgeColor, size: 28),
-            title: Text(formatted, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            subtitle: Text("Monto Pactado: \$${_monto.round()} USD", style: const TextStyle(fontSize: 11)),
+            title: Text(
+              formatted,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: widget.isProgramadorMode ? Colors.white : Colors.black,
+              ),
+            ),
+            subtitle: Text("Monto Pactado: \$${_monto.round()} USD", style: const TextStyle(fontSize: 11, color: Colors.grey)),
             trailing: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
