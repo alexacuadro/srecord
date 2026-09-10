@@ -111,13 +111,19 @@ class _BancoScreenState extends State<BancoScreen> {
   }
 
   Future<void> _checkRentAlarm() async {
-    final isPaymentDay = await RentService().isTodayPaymentDay();
-    if (!isPaymentDay) return;
+    final shouldShow = await RentService().shouldShowPaymentReminder();
+    if (!shouldShow) return;
 
-    final isPaid = await RentService().isCurrentPeriodPaid();
-    if (isPaid) return;
-
+    final isSaturday = await RentService().isSaturdayBeforePaymentDay();
     final monto = await RentService().getMonto();
+
+    final String timeTitle = isSaturday
+        ? "⏰ RECORDATORIO DE PAGO DE RENTA (MAÑANA DOMINGO)"
+        : "⏰ ALARMA DE COBRO DE RENTA (HOY DOMINGO)";
+
+    final String timeMessage = isSaturday
+        ? "Mañana es Domingo de Cobro Pactado para el mantenimiento y alquiler de la aplicación."
+        : "Hoy es Domingo de Cobro Pactado para el mantenimiento y alquiler de la aplicación.";
 
     if (mounted) {
       showDialog(
@@ -128,12 +134,12 @@ class _BancoScreenState extends State<BancoScreen> {
           backgroundColor: Colors.amber.shade50,
           title: Row(
             children: [
-              Icon(Icons.alarm_on, color: Colors.amber.shade900, size: 30),
-              const SizedBox(width: 10),
+              Icon(Icons.alarm_on, color: Colors.amber.shade900, size: 28),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  "⏰ ALARMA DE COBRO DE RENTA",
-                  style: TextStyle(fontWeight: FontWeight.w900, color: Colors.amber.shade900, fontSize: 16),
+                  timeTitle,
+                  style: TextStyle(fontWeight: FontWeight.w900, color: Colors.amber.shade900, fontSize: 14),
                 ),
               ),
             ],
@@ -143,8 +149,8 @@ class _BancoScreenState extends State<BancoScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Hoy es Domingo de Cobro Pactado para el mantenimiento y alquiler de la aplicación.",
-                style: TextStyle(fontSize: 13, color: Colors.amber.shade900, fontWeight: FontWeight.bold),
+                timeMessage,
+                style: TextStyle(fontSize: 12, color: Colors.amber.shade900, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
               Container(
@@ -168,7 +174,7 @@ class _BancoScreenState extends State<BancoScreen> {
               ),
               const SizedBox(height: 12),
               const Text(
-                "Por favor liquide el pago correspondiente al día de hoy para mantener la plataforma del banco operativa sin interrupciones.",
+                "Por favor liquide el pago correspondiente para mantener la plataforma del banco operativa sin interrupciones.",
                 style: TextStyle(fontSize: 11, color: Colors.black87),
               ),
             ],

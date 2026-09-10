@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
 
 enum RentFrequency { quincenalDomingo, semanalDomingo, mensual }
 
@@ -15,6 +16,20 @@ class RentService {
     String dayName = days[dt.weekday - 1];
     String monthName = months[dt.month - 1];
     return "$dayName ${dt.day} de $monthName, ${dt.year}";
+  }
+
+  /// Verifica si el cobro de renta está activado para un banco (por defecto true)
+  Future<bool> isRentEnabled({String? bancoId}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final bId = bancoId ?? prefs.getString("active_banco_id") ?? "DEFAULT";
+    return prefs.getBool("rent_enabled_$bId") ?? true;
+  }
+
+  /// Activa o desactiva la alarma/cobro de renta para un banco
+  Future<void> setRentEnabled(bool enabled, {String? bancoId}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final bId = bancoId ?? prefs.getString("active_banco_id") ?? "DEFAULT";
+    await prefs.setBool("rent_enabled_$bId", enabled);
   }
 
   /// Obtiene el monto pactado para un banco (ej: 100.0 USD)
@@ -112,6 +127,41 @@ class RentService {
       return weeks % 2 == 0;
     }
     return false;
+  }
+
+  /// Verifica si HOY es el Sábado inmediatamente anterior al Domingo de Cobro Pactado
+  Future<bool> isSaturdayBeforePaymentDay({String? bancoId}) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    if (today.weekday != DateTime.saturday) return false;
+
+    final tomorrow = today.add(const Duration(days: 1));
+    final start = await getFechaInicio(bancoId: bancoId);
+    final freq = await getFrecuencia(bancoId: bancoId);
+
+    if (freq == RentFrequency.semanalDomingo) {
+      return true;
+    } else if (freq == RentFrequency.quincenalDomingo) {
+      final differenceInDays = tomorrow.difference(start).inDays;
+      if (differenceInDays < 0) return false;
+      final weeks = (differenceInDays / 7).round();
+      return weeks % 2 == 0;
+    }
+    return false;
+  }
+
+  /// Determina si debe mostrarse el cartel de recordatorio de cobro de renta
+  Future<bool> shouldShowPaymentReminder({String? bancoId}) async {
+    final enabled = await isRentEnabled(bancoId: bancoId);
+    if (!enabled) return false;
+
+    final isPaid = await isCurrentPeriodPaid(bancoId: bancoId);
+    if (isPaid) return false;
+
+    final isTodayPayment = await isTodayPaymentDay(bancoId: bancoId);
+    final isSaturdayBefore = await isSaturdayBeforePaymentDay(bancoId: bancoId);
+
+    return isTodayPayment || isSaturdayBefore;
   }
 
   /// Verifica si el cobro del día actual ya fue saldado

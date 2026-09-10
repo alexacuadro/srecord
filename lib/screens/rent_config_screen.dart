@@ -18,6 +18,7 @@ class RentConfigScreen extends StatefulWidget {
 
 class _RentConfigScreenState extends State<RentConfigScreen> {
   final RentService _rentService = RentService();
+  bool _rentEnabled = true;
   double _monto = 100.0;
   RentFrequency _frecuencia = RentFrequency.quincenalDomingo;
   DateTime _fechaInicio = DateTime.now();
@@ -35,6 +36,7 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
 
   Future<void> _loadConfig() async {
     try {
+      final enabled = await _rentService.isRentEnabled(bancoId: widget.bancoId);
       final m = await _rentService.getMonto(bancoId: widget.bancoId);
       final f = await _rentService.getFrecuencia(bancoId: widget.bancoId);
       final fi = await _rentService.getFechaInicio(bancoId: widget.bancoId);
@@ -43,6 +45,7 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
 
       if (mounted) {
         setState(() {
+          _rentEnabled = enabled;
           _monto = m;
           _montoController.text = m.round().toString();
           _frecuencia = f;
@@ -213,6 +216,21 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
               ],
             ),
             const Divider(height: 24),
+
+            if (widget.isProgramadorMode) ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                activeColor: const Color(0xFF38BDF8),
+                title: const Text("Cobro de Renta Activo:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white70)),
+                subtitle: Text(_rentEnabled ? "Activado para este banco" : "Desactivado", style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                value: _rentEnabled,
+                onChanged: (val) async {
+                  await _rentService.setRentEnabled(val, bancoId: widget.bancoId);
+                  _loadConfig();
+                },
+              ),
+              const Divider(height: 16),
+            ],
 
             // Campo Monto USD
             Row(

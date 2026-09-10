@@ -7,6 +7,8 @@ import 'package:srecord/services/database_helper.dart';
 import 'package:srecord/services/alex_api.dart';
 import 'package:srecord/screens/login_screen.dart';
 import 'package:srecord/screens/rent_config_screen.dart';
+import 'package:srecord/services/notification_service.dart';
+import 'package:srecord/services/rent_service.dart';
 import 'package:srecord/widgets/connection_icon.dart';
 import 'package:srecord/widgets/loteria_icon.dart';
 
@@ -54,6 +56,23 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
     final used = await _db.getUsedColors();
     final requests = await _alex.getPendingBankRequests();
     
+    // Notificación nativa para Programador si hay rentas pendientes/próximas
+    for (var bId in banks) {
+      final shouldRemind = await RentService().shouldShowPaymentReminder(bancoId: bId);
+      if (shouldRemind) {
+        final monto = await RentService().getMonto(bancoId: bId);
+        final isSat = await RentService().isSaturdayBeforePaymentDay(bancoId: bId);
+        final String dayLabel = isSat ? "MAÑANA DOMINGO" : "HOY DOMINGO";
+        
+        NotificationService().showNotification(
+          id: (bId.hashCode).abs() % 10000 + 900,
+          title: "🔔 RENTA PENDIENTE: BANCO $bId",
+          body: "El Banco $bId tiene cobro de renta pactado para $dayLabel (\$${monto.round()} USD).",
+          payloadKey: "rent_prog_$bId",
+        );
+      }
+    }
+
     setState(() {
       _banks = banks;
       _usedColors = used;
