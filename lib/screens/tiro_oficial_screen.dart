@@ -129,6 +129,32 @@ class _TiroOficialScreenState extends State<TiroOficialScreen> {
     final n2 = _c1Controller.text.trim();
     final n3 = _c2Controller.text.trim();
 
+    if (RecaudacionService.isFutureSection(_activeFecha, _activeSeccion, loteria: _activeLoteria)) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Row(
+              children: [
+                Icon(Icons.block, color: Colors.red, size: 28),
+                SizedBox(width: 10),
+                Expanded(child: Text("SECCIÓN FUTURA", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+              ],
+            ),
+            content: Text(
+              "🚫 PROHIBIDO: No se puede publicar un tiro para una sección futura que aún no ha cerrado ($_activeLoteria - $_activeSeccion para $_activeFecha).\n\nSolo puede publicar tiros para la sección actual cerrada o secciones pasadas.",
+              style: const TextStyle(fontSize: 13),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("ENTENDIDO")),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+
     try {
       final bancoId = await Alex().getActiveBancoId() ?? "UNKNOWN";
       
@@ -270,9 +296,11 @@ class _TiroOficialScreenState extends State<TiroOficialScreen> {
   @override
   Widget build(BuildContext context) {
     final Color loteriaColor = _activeLoteria == "GEORGIA" ? Colors.orange.shade900 : Colors.blue.shade900;
+    bool isFutureSection = RecaudacionService.isFutureSection(_activeFecha, _activeSeccion, loteria: _activeLoteria);
     bool canPublish = _centenaController.text.length == 3 && 
                      _c1Controller.text.length == 2 && 
-                     _c2Controller.text.length == 2;
+                     _c2Controller.text.length == 2 &&
+                     !isFutureSection;
 
     return Scaffold(
       appBar: AppBar(
