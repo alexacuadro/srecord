@@ -640,11 +640,15 @@ class Alex {
       
       debugPrint("[ALEX_SYNC] Iniciando sincronización de nube para banco: $bancoId...");
 
-      // MOTOR DE SINCRONIZACIÓN SOBERANA (Reordenado para evitar resurrecciones)
+      // MOTOR DE SINCRONIZACIÓN SOBERANA
       // 1. Procesar borrados locales en la nube primero
       await _processMirrorDeletions(bancoId);
       
-      // 2. Descargar datos y LIMPIAR (Pruning) localmente lo que ya no existe en la nube
+      // 2. Subir mis datos locales creados a la nube PRIMERO (para que la nube reciba los tiros/datos nuevos)
+      bool pushedAnything = await _pushMirrorToCloud(bancoId, isDeepSync: currentDeep, priorityTable: currentPriority);
+      await _resyncAffectedSections(bancoId);
+
+      // 3. Descargar datos y sincronizar con la nube SEGUNDO
       if (userRole == "BANCO" || currentDeep) {
         final pin = (userRole == "LISTERO") ? await getActiveListeroPin() : null;
         await _pullCloudToLocalOptimized(bancoId, lastSync, isDeepSync: userRole == "BANCO" || currentDeep, listeroPin: pin);
@@ -653,10 +657,6 @@ class Alex {
         await _pullCriticalUpdatesOptimized(bancoId, lastSync, listeroPin: pin);
         await _updateListeroHeartbeat(bancoId, pin);
       }
-
-      // 3. Subir cambios locales actuales (solo lo que sobrevivió al pruning)
-      bool pushedAnything = await _pushMirrorToCloud(bancoId, isDeepSync: currentDeep, priorityTable: currentPriority);
-      await _resyncAffectedSections(bancoId);
 
       await prefs.setString("last_sync_timestamp_$bancoId", DateTime.now().toUtc().toIso8601String());
       _db.notifySyncUpdate(-999);
@@ -962,6 +962,9 @@ class Alex {
 
       bool deletedLocalTiro = false;
       for (var lt in localTiros) {
+        final int syncStatus = lt['sync'] as int? ?? 0;
+        if (syncStatus == 1) continue; // NUNCA borrar tiros locales pendientes de subir a la nube
+
         final String f = lt['fecha']?.toString() ?? '';
         final String s = lt['seccion']?.toString() ?? '';
         final String lot = (lt['loteria']?.toString() ?? 'FLORIDA').toUpperCase();
