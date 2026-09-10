@@ -34,22 +34,29 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
   }
 
   Future<void> _loadConfig() async {
-    final m = await _rentService.getMonto(bancoId: widget.bancoId);
-    final f = await _rentService.getFrecuencia(bancoId: widget.bancoId);
-    final fi = await _rentService.getFechaInicio(bancoId: widget.bancoId);
-    final up = await _rentService.getUltimoPagoFecha(bancoId: widget.bancoId);
-    final sch = await _rentService.getAnnualSchedule(bancoId: widget.bancoId);
+    try {
+      final m = await _rentService.getMonto(bancoId: widget.bancoId);
+      final f = await _rentService.getFrecuencia(bancoId: widget.bancoId);
+      final fi = await _rentService.getFechaInicio(bancoId: widget.bancoId);
+      final up = await _rentService.getUltimoPagoFecha(bancoId: widget.bancoId);
+      final sch = await _rentService.getAnnualSchedule(bancoId: widget.bancoId);
 
-    if (mounted) {
-      setState(() {
-        _monto = m;
-        _montoController.text = m.round().toString();
-        _frecuencia = f;
-        _fechaInicio = fi;
-        _ultimoPago = up;
-        _schedule = sch;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _monto = m;
+          _montoController.text = m.round().toString();
+          _frecuencia = f;
+          _fechaInicio = fi;
+          _ultimoPago = up;
+          _schedule = sch;
+        });
+      }
+    } catch (e) {
+      debugPrint("[RENT_CONFIG_ERR] Error cargando configuración: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -304,7 +311,7 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
                       ),
                     ),
                     Text(
-                      DateFormat('EEEE d MMMM yyyy', 'es').format(_fechaInicio),
+                      RentService.formatSpanishDate(_fechaInicio),
                       style: const TextStyle(fontSize: 11, color: Colors.blueGrey),
                     ),
                   ],

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/intl.dart';
 
 enum RentFrequency { quincenalDomingo, semanalDomingo, mensual }
 
@@ -8,6 +7,15 @@ class RentService {
   static final RentService _instance = RentService._internal();
   factory RentService() => _instance;
   RentService._internal();
+
+  /// Formatea la fecha de forma nativa sin depender de locale de intl
+  static String formatSpanishDate(DateTime dt) {
+    const days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+    const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+    String dayName = days[dt.weekday - 1];
+    String monthName = months[dt.month - 1];
+    return "$dayName ${dt.day} de $monthName, ${dt.year}";
+  }
 
   /// Obtiene el monto pactado para un banco (ej: 100.0 USD)
   Future<double> getMonto({String? bancoId}) async {
@@ -156,7 +164,7 @@ class RentService {
         schedule.add({
           "date": currentSunday,
           "dateStr": dateStr,
-          "formatted": DateFormat('EEEE d, MMMM yyyy', 'es').format(currentSunday),
+          "formatted": formatSpanishDate(currentSunday),
           "status": status,
           "isPaid": isPaid,
         });
