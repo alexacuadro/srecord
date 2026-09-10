@@ -216,16 +216,39 @@ class Alex {
         final String fecha = record['fecha']?.toString() ?? '';
         final String seccion = record['seccion']?.toString() ?? '';
         final String loteria = record['loteria']?.toString() ?? 'FLORIDA';
-        debugPrint("[ALEX_REALTIME] Borrando resultado localmente: $fecha $seccion ($loteria)");
-        await _db.deleteResultado(fecha, seccion, bancoId: bancoId, loteria: loteria, sync: 0);
-        
-        final openData = RecaudacionService.getOpenSeccionAndFecha();
-        if (fecha == openData['fecha'] && seccion == openData['seccion']) {
-           debugPrint("[ALEX_REALTIME] Notificando eliminación de tiro activo a la UI.");
-           TiroService().notifyNewTiro(null);
+
+        if (fecha.isNotEmpty && seccion.isNotEmpty) {
+          debugPrint("[ALEX_REALTIME] Borrando resultado localmente: $fecha $seccion ($loteria)");
+          await _db.deleteResultado(fecha, seccion, bancoId: bancoId, loteria: loteria, sync: 0);
         } else {
-           TiroService().version.value++; 
+          final String? uuid = record['uuid']?.toString();
+          final int? id = int.tryParse(record['id']?.toString() ?? '');
+          final db = await _db.database;
+          if (uuid != null && uuid.isNotEmpty) {
+            final rows = await db.query('resultados', where: 'uuid = ?', whereArgs: [uuid]);
+            for (var r in rows) {
+              await _db.deleteResultado(r['fecha']?.toString() ?? '', r['seccion']?.toString() ?? '', bancoId: bancoId, loteria: r['loteria']?.toString() ?? 'FLORIDA', sync: 0);
+            }
+          } else if (id != null) {
+            final rows = await db.query('resultados', where: 'id = ?', whereArgs: [id]);
+            for (var r in rows) {
+              await _db.deleteResultado(r['fecha']?.toString() ?? '', r['seccion']?.toString() ?? '', bancoId: bancoId, loteria: r['loteria']?.toString() ?? 'FLORIDA', sync: 0);
+            }
+          }
         }
+        
+        debugPrint("[ALEX_REALTIME] Notificando eliminación de tiro activo a la UI.");
+        TiroService().notifyNewTiro(null);
+        _db.notifySyncUpdate(-999);
+
+        NotificationService().showNotification(
+          id: 102,
+          title: "⚠️ TIRO ELIMINADO POR EL BANCO",
+          body: "El banco ha eliminado el tiro oficial. La lista se ha actualizado.",
+          payloadKey: "deleted_tiro_${DateTime.now().millisecondsSinceEpoch}",
+        );
+
+        syncDataToCloud(isDeepSync: true);
         return;
       }
       final String lot = record['loteria']?.toString() ?? 'FLORIDA';
@@ -886,12 +909,40 @@ class Alex {
       final String deepDate = DateTime.now().subtract(const Duration(days: 30)).toUtc().toIso8601String();
       final String timeFilter = isDeep ? deepDate : lastSync;
       
-      // RESULTADOS (TIROS): Filtrado por ventana para optimizar Postgres
+      // RESULTADOS (TIROS): Filtrado por ventana para optimizar Postgres con pruning local
       final String tirosFilter = isDeep ? DateTime.now().subtract(const Duration(days: 60)).toUtc().toIso8601String().substring(0, 10) : DateTime.now().subtract(const Duration(days: 7)).toUtc().toIso8601String().substring(0, 10);
       final cloudTiros = await _supabase.from('resultados').select().eq('banco_id', bId).gt('fecha', tirosFilter);
+      
+      final db = await _db.database;
+      final localTiros = await db.query('resultados',
+        where: "banco_id = ? AND fecha > ?",
+        whereArgs: [bId, tirosFilter],
+      );
+
+      final Set<String> cloudKeys = {};
       for (var t in cloudTiros) {
-        final String lot = t['loteria']?.toString() ?? 'FLORIDA';
-        await _db.saveResultado(t['fecha'], t['seccion'], t['n1'].toString(), t['n2'].toString(), t['n3'].toString(), bancoId: bId, loteria: lot, sync: 0);
+        final String f = t['fecha']?.toString() ?? '';
+        final String s = t['seccion']?.toString() ?? '';
+        final String lot = (t['loteria']?.toString() ?? 'FLORIDA').toUpperCase();
+        cloudKeys.add("${f}_${s}_${lot}");
+        await _db.saveResultado(f, s, t['n1'].toString(), t['n2'].toString(), t['n3'].toString(), bancoId: bId, loteria: lot, sync: 0);
+      }
+
+      bool deletedLocalTiro = false;
+      for (var lt in localTiros) {
+        final String f = lt['fecha']?.toString() ?? '';
+        final String s = lt['seccion']?.toString() ?? '';
+        final String lot = (lt['loteria']?.toString() ?? 'FLORIDA').toUpperCase();
+        final String key = "${f}_${s}_${lot}";
+        if (!cloudKeys.contains(key)) {
+          debugPrint("[ALEX_SYNC] Pruning: Eliminando tiro local borrado en banco: $key");
+          await _db.deleteResultado(f, s, bancoId: bId, loteria: lot, sync: 0);
+          deletedLocalTiro = true;
+        }
+      }
+
+      if (deletedLocalTiro) {
+        TiroService().notifyNewTiro(null);
       }
 
       // PARTES (REPORTES)
