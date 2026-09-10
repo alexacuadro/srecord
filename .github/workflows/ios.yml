@@ -28,9 +28,9 @@ jobs:
       - name: Install Flutter Dependencies
         run: flutter pub get
 
-      # 4. Compilar la aplicación para iOS en modo Release (ejecuta Pod Install automáticamente)
+      # 4. Compilar la aplicación para iOS en modo Release sin firma de código
       - name: Build iOS Application (Runner.app)
-        run: flutter build ios --release --no-codesign
+        run: flutter build ios --release --no-codesign --verbose
 
       # 5. Empaquetar el Runner.app compilado en formato .ipa
       - name: Package IPA
