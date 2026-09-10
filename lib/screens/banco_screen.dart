@@ -11,8 +11,10 @@ import 'package:srecord/screens/planes_screen.dart';
 import 'package:srecord/screens/tiro_oficial_screen.dart';
 import 'package:srecord/screens/login_screen.dart';
 import 'package:srecord/screens/loteria_videos_screen.dart';
+import 'package:srecord/screens/rent_config_screen.dart';
 import 'package:srecord/services/alex_api.dart';
 import 'package:srecord/services/database_helper.dart';
+import 'package:srecord/services/rent_service.dart';
 import 'package:srecord/screens/info_listeros_screen.dart';
 import 'package:srecord/widgets/connection_icon.dart';
 import 'package:srecord/widgets/loteria_icon.dart';
@@ -99,12 +101,109 @@ class _BancoScreenState extends State<BancoScreen> {
         _activeLoteria = activeLot;
       });
       _checkPendingAnnouncements();
+      _checkRentAlarm();
     }
   }
 
   Future<void> _checkPendingAnnouncements() async {
     // Los comunicados son únicamente para los listeros, no para el banco.
     return;
+  }
+
+  Future<void> _checkRentAlarm() async {
+    final isPaymentDay = await RentService().isTodayPaymentDay();
+    if (!isPaymentDay) return;
+
+    final isPaid = await RentService().isCurrentPeriodPaid();
+    if (isPaid) return;
+
+    final monto = await RentService().getMonto();
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: Colors.amber.shade50,
+          title: Row(
+            children: [
+              Icon(Icons.alarm_on, color: Colors.amber.shade900, size: 30),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  "⏰ ALARMA DE COBRO DE RENTA",
+                  style: TextStyle(fontWeight: FontWeight.w900, color: Colors.amber.shade900, fontSize: 16),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Hoy es Domingo de Cobro Pactado para el mantenimiento y alquiler de la aplicación.",
+                style: TextStyle(fontSize: 13, color: Colors.amber.shade900, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.amber.shade400),
+                ),
+                child: Column(
+                  children: [
+                    const Text("MONTO LIQUIDACIÓN PACTADO:", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                    const SizedBox(height: 4),
+                    Text(
+                      "\$${monto.round()} USD",
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.amber.shade900),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                "Por favor liquide el pago correspondiente al día de hoy para mantener la plataforma del banco operativa sin interrupciones.",
+                style: TextStyle(fontSize: 11, color: Colors.black87),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const RentConfigScreen()));
+              },
+              child: const Text("VER CALENDARIO / PACTO"),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () async {
+                await RentService().registrarPago(DateTime.now());
+                if (mounted) {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text("¡Renta de \$${monto.round()} USD registrada como SALDADA!"),
+                    backgroundColor: Colors.green,
+                  ));
+                }
+              },
+              icon: const Icon(Icons.check_circle_outline),
+              label: const Text("MARCAR COMO PAGADO"),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   Future<void> _initLocalData() async {
@@ -138,6 +237,7 @@ class _BancoScreenState extends State<BancoScreen> {
     {'title': 'PARTES', 'icon': Icons.history_edu, 'view': const PartesListerosScreen()},
     {'title': 'COMUNICADOS', 'icon': Icons.campaign, 'view': const InfoListerosScreen()},
     {'title': 'VÍDEOS LOTERÍA', 'icon': Icons.play_circle_fill, 'view': const LoteriaVideosScreen()},
+    {'title': 'RENTAS Y COBROS', 'icon': Icons.alarm_on, 'view': const RentConfigScreen()},
     {'title': 'SISTEMA', 'icon': Icons.settings, 'view': const GestionScreen()},
   ];
 

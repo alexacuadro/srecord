@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:srecord/screens/login_screen.dart';
+import 'package:srecord/screens/rent_config_screen.dart';
 import 'package:srecord/services/database_helper.dart';
 
 class GestionScreen extends StatelessWidget {
@@ -73,6 +74,7 @@ class GestionScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           _sectionTitle("INFRAESTRUCTURA DE DATOS"),
+          _gestionTile(context, Icons.alarm_on, "Alarma de Rentas y Cobros", "Configurar pacto (\$100 USD), primer domingo y calendario anual.", () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RentConfigScreen())), color: Colors.amber.shade900),
           _gestionTile(context, Icons.delete_sweep, "Vaciar Historial", "Elimina jugadas registradas (mantiene listeros).", () => _clearDatabase(context)),
           _gestionTile(context, Icons.settings_backup_restore, "Reseteo de Fábrica", "Borrado absoluto de todo el banco.", () => _resetApp(context), color: Colors.red),
           const SizedBox(height: 30),
