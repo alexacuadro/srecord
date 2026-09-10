@@ -28,18 +28,11 @@ jobs:
       - name: Install Flutter Dependencies
         run: flutter pub get
 
-      # 4. Instalar Pods de iOS
-      - name: Install CocoaPods Dependencies
-        run: |
-          cd ios
-          pod install
-          cd ..
-
-      # 5. Compilar la aplicación para iOS en modo Release
+      # 4. Compilar la aplicación para iOS en modo Release (ejecuta Pod Install automáticamente)
       - name: Build iOS Application (Runner.app)
         run: flutter build ios --release --no-codesign
 
-      # 6. Empaquetar el Runner.app compilado en formato .ipa
+      # 5. Empaquetar el Runner.app compilado en formato .ipa
       - name: Package IPA
         run: |
           mkdir -p Payload
@@ -47,7 +40,7 @@ jobs:
           zip -r srecord-ios.ipa Payload
           rm -rf Payload
 
-      # 7. Subir el archivo .ipa resultante como Artefacto de GitHub
+      # 6. Subir el archivo .ipa resultante como Artefacto de GitHub
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
