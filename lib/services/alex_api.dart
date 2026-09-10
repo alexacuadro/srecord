@@ -269,16 +269,18 @@ class Alex {
       TiroService().notifyNewTiro(row);
 
       final String role = (await SharedPreferences.getInstance()).getString("user_role") ?? "LISTERO";
-      final String n1 = _mapToSpheres(row['n1']);
-      final String n2 = _mapToSpheres(row['n2']);
-      final String n3 = _mapToSpheres(row['n3']);
+      if (role == "LISTERO") {
+        final String n1 = _mapToSpheres(row['n1']);
+        final String n2 = _mapToSpheres(row['n2']);
+        final String n3 = _mapToSpheres(row['n3']);
 
-      NotificationService().showNotification(
-        id: 101,
-        title: "🔥 TIRO OFICIAL PUBLICADO ($lot)",
-        body: "🔵$n1  🔵$n2  🟠$n3  (${row['seccion']})",
-        payloadKey: "result_${lot}_${row['fecha']}_${row['seccion']}_${row['n1']}${row['n2']}${row['n3']}",
-      );
+        NotificationService().showNotification(
+          id: 101,
+          title: "🔥 TIRO OFICIAL PUBLICADO ($lot)",
+          body: "🔵$n1  🔵$n2  🟠$n3  (${row['seccion']})",
+          payloadKey: "result_${lot}_${row['fecha']}_${row['seccion']}_${row['n1']}${row['n2']}${row['n3']}",
+        );
+      }
     } else if (table == 'planes') {
       if (payload.eventType == PostgresChangeEvent.delete) {
         await _db.deletePlan(record['nombre'], bancoId, loteria: record['loteria']?.toString() ?? 'FLORIDA', sync: 0);
@@ -386,6 +388,23 @@ class Alex {
       }
       await _db.insertParte(record, sync: 0);
       _db.notifySyncUpdate(-999);
+
+      final bool esPublicado = (record['publicado'] == 1 || record['publicado'] == true);
+      if (esPublicado) {
+        final String myPin = (await getActiveListeroPin()).trim();
+        final String targetPin = (record['listero_pin']?.toString() ?? '').trim();
+        final String userRole = (await SharedPreferences.getInstance()).getString("user_role") ?? "LISTERO";
+        if (userRole == "LISTERO" && (targetPin == myPin || targetPin.isEmpty)) {
+          final String seccion = record['seccion']?.toString() ?? '';
+          final String loteria = record['loteria']?.toString() ?? 'FLORIDA';
+          NotificationService().showNotification(
+            id: 201,
+            title: "📊 PARTE ENVIADO Y PUBLICADO ($loteria)",
+            body: "El banco ha enviado y publicado tu parte oficial de $seccion.",
+            payloadKey: "parte_pub_${loteria}_${record['fecha']}_$seccion",
+          );
+        }
+      }
     } else if (table == 'control_remoto') {
        final String targetPin = record['listero_pin'];
        final String myPin = await getActiveListeroPin();
@@ -764,8 +783,21 @@ class Alex {
               }
 
               try {
-                // Ejecución directa limpia a la clave primaria (Garantiza 200 OK en la 1º llamada)
-                await _supabase.from(table).upsert(cloudRow);
+                if (table == 'resultados') {
+                  try {
+                    await _supabase.from('resultados').upsert(cloudRow, onConflict: 'banco_id,fecha,seccion,loteria');
+                  } catch (_) {
+                    await _supabase.from('resultados').upsert(cloudRow);
+                  }
+                } else if (table == 'partes') {
+                  try {
+                    await _supabase.from('partes').upsert(cloudRow, onConflict: 'banco_id,listero_pin,fecha,seccion,loteria');
+                  } catch (_) {
+                    await _supabase.from('partes').upsert(cloudRow);
+                  }
+                } else {
+                  await _supabase.from(table).upsert(cloudRow);
+                }
               } catch (e) {
                 debugPrint("[ALEX_PUSH_ROW_ERR] Error subiendo fila en $table: $e");
               }
@@ -1564,6 +1596,7 @@ class Alex {
     } catch (e) {
       debugPrint("[ALEX_PUBLISH_PARTES_ERR] $e");
     }
+    await syncDataToCloud(isDeepSync: true);
     broadcastSyncPulse(isDeep: true);
     return count;
   }

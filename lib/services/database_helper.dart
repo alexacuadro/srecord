@@ -562,17 +562,18 @@ class DatabaseHelper {
 
   Future<bool> saveResultado(String fecha, String seccion, String n1, String n2, String n3, {required String bancoId, String loteria = 'FLORIDA', int sync = 1}) async {
     final db = await database;
-    debugPrint("[DB_HELPER] Guardando resultado local: $fecha | $seccion ($loteria) -> $n1-$n2-$n3");
+    debugPrint("[DB_HELPER] Guardando resultado local: $fecha | $seccion ($loteria) -> $n1-$n2-$n3 (Sync: $sync)");
     
-    // Verificar si ya existe exactamente este tiro para evitar notificaciones repetidas
-    final List<Map<String, dynamic>> existing = await db.query('resultados', 
-      where: "banco_id = ? AND fecha = ? AND seccion = ? AND (loteria = ? OR (loteria IS NULL AND ? = 'FLORIDA')) AND n1 = ? AND n2 = ? AND n3 = ?",
-      whereArgs: [bancoId.trim(), fecha.trim(), seccion.trim(), loteria.trim().toUpperCase(), loteria.trim().toUpperCase(), n1.trim(), n2.trim(), n3.trim()]
-    );
-    
-    if (existing.isNotEmpty) return false;
-
-    final row = {'banco_id': bancoId.trim(), 'fecha': fecha.trim(), 'seccion': seccion.trim(), 'loteria': loteria.trim().toUpperCase(), 'n1': n1.trim(), 'n2': n2.trim(), 'n3': n3.trim(), 'sync': sync};
+    final row = {
+      'banco_id': bancoId.trim(), 
+      'fecha': fecha.trim(), 
+      'seccion': seccion.trim(), 
+      'loteria': loteria.trim().toUpperCase(), 
+      'n1': n1.trim(), 
+      'n2': n2.trim(), 
+      'n3': n3.trim(), 
+      'sync': sync
+    };
     await db.insert('resultados', row, conflictAlgorithm: ConflictAlgorithm.replace);
     _notifySync(sync == 0 ? -999 : -1);
     return true;

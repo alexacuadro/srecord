@@ -69,7 +69,8 @@ class _InfoListerosScreenState extends State<InfoListerosScreen> {
       );
       _tituloController.clear(); _mensajeController.clear();
       
-      // FORZAR ENTREGA: Avisar a los listeros que hay un nuevo comunicado
+      // FORZAR ENTREGA: Subir a la nube y avisar a los listeros que hay un nuevo comunicado
+      await Alex().syncDataToCloud(isDeepSync: true);
       await Alex().broadcastSyncPulse(isDeep: _esOficial, targetPin: _selectedListeroPin);
       
       setState(() {
