@@ -156,7 +156,7 @@ class _MisPartesScreenState extends State<MisPartesScreen> {
                             const SizedBox(width: 6),
                             Flexible(
                               child: Text(
-                                "$loteria - $seccion", 
+                                RecaudacionService.getSeccionDisplayName(seccion, loteria), 
                                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 1.2),
                                 overflow: TextOverflow.ellipsis,
                               ),

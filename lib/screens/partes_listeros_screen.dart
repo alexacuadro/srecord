@@ -663,7 +663,7 @@ class _DetallePartesListeroScreenState extends State<DetallePartesListeroScreen>
           children: [
             LoteriaIcon(loteria: loteria, size: 18, width: 34, borderRadius: 4),
             const SizedBox(width: 8),
-            Expanded(child: Text("${p['fecha']} | $loteria-$seccion", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13))),
+            Expanded(child: Text("${p['fecha']} | ${RecaudacionService.getSeccionDisplayName(seccion, loteria)}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13))),
             if (esBorrador) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: Colors.amber.shade400, borderRadius: BorderRadius.circular(4)), child: const Text("BORRADOR", style: TextStyle(color: Colors.black, fontSize: 8, fontWeight: FontWeight.w900))),
           ],
         ),

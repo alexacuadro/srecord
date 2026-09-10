@@ -65,17 +65,16 @@ class _InfoListerosScreenState extends State<InfoListerosScreen> {
         _mensajeController.text, 
         bancoId: bancoId,
         listeroPin: _selectedListeroPin,
-        esOficial: _esOficial,
+        esOficial: true,
       );
       _tituloController.clear(); _mensajeController.clear();
       
       // FORZAR ENTREGA: Subir a la nube y avisar a los listeros que hay un nuevo comunicado
       await Alex().syncDataToCloud(isDeepSync: true);
-      await Alex().broadcastSyncPulse(isDeep: _esOficial, targetPin: _selectedListeroPin);
+      await Alex().broadcastSyncPulse(isDeep: true, targetPin: _selectedListeroPin);
       
       setState(() {
         _selectedListeroPin = null;
-        _esOficial = false;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Comunicado enviado y distribuido"), backgroundColor: Colors.green));
@@ -124,12 +123,25 @@ class _InfoListerosScreenState extends State<InfoListerosScreen> {
                     decoration: const InputDecoration(labelText: "Mensaje detallado...", border: OutlineInputBorder(), filled: true, fillColor: Colors.white),
                   ),
                   const SizedBox(height: 10),
-                  SwitchListTile(
-                    title: const Text("Comunicado Oficial (Obligatorio)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    subtitle: const Text("Bloquea la pantalla del listero hasta que confirme lectura", style: TextStyle(fontSize: 11)),
-                    value: _esOficial,
-                    activeThumbColor: Colors.blue.shade900,
-                    onChanged: (val) => setState(() => _esOficial = val),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.blue.shade300),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.verified, color: Colors.blue, size: 22),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            "📢 COMUNICADO OFICIAL (OBLIGATORIO)\nBloquea la pantalla del listero hasta que confirme su lectura.",
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.blue),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 15),
                   SizedBox(

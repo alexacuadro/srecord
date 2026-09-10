@@ -449,6 +449,22 @@ class RecaudacionService {
     return {"seccion": seccion, "fecha": fecha, "loteria": loteria};
   }
 
+  static String getSeccionDisplayName(String seccion, String loteria) {
+    final String sec = seccion.trim().toUpperCase();
+    final String lot = loteria.trim().toUpperCase();
+    
+    if (lot.contains("GEORGIA")) {
+      if (sec == "MIDDAY" || sec == "MAÑANA" || sec == "DIA") return "Georgia Mañana";
+      if (sec == "EVENING" || sec == "TARDE") return "Georgia Tarde";
+      if (sec == "NIGHT" || sec == "NOCHE") return "Georgia Noche";
+      return "Georgia $seccion";
+    } else {
+      if (sec == "DIA" || sec == "MIDDAY") return "Florida Día";
+      if (sec == "NOCHE" || sec == "NIGHT" || sec == "EVENING") return "Florida Noche";
+      return "Florida $seccion";
+    }
+  }
+
   static bool isFutureSection(String fecha, String seccion, {String loteria = "FLORIDA"}) {
     final open = getOpenSeccionAndFecha(loteria: loteria);
     final String openFecha = open["fecha"]!;
