@@ -1,0 +1,54 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# Executables & Backups
+*.apk
+*.tar.gz
+shorebird.tar.gz
+backups/
+
+# IntelliJ / Android Studio
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Custom & AI Artifacts
+.artifacts/
+.fake_home/
+.tmp_home/
+.gradle_home/
+.gradle_local/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Android build outputs
+/android/.gradle/
+/android/app/.cxx/
+/android/app/build/
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Symbolication / Obfuscation related
+app.*.symbols
+app.*.map.json

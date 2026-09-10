@@ -1,0 +1,56 @@
+name: Build iOS App (IPA)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch: # Permite ejecutar la compilación manualmente desde GitHub
+
+jobs:
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-latest
+
+    steps:
+      # 1. Obtener el código fuente del repositorio
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Configurar el entorno de Flutter
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      # 3. Descargar dependencias de Pub
+      - name: Install Flutter Dependencies
+        run: flutter pub get
+
+      # 4. Instalar Pods de iOS
+      - name: Install CocoaPods Dependencies
+        run: |
+          cd ios
+          pod install
+          cd ..
+
+      # 5. Compilar la aplicación para iOS en modo Release
+      - name: Build iOS Application (Runner.app)
+        run: flutter build ios --release --no-codesign
+
+      # 6. Empaquetar el Runner.app compilado en formato .ipa
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r srecord-ios.ipa Payload
+          rm -rf Payload
+
+      # 7. Subir el archivo .ipa resultante como Artefacto de GitHub
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: srecord-ios-ipa
+          path: srecord-ios.ipa
+          retention-days: 14

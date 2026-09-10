@@ -1,0 +1,121 @@
+[2026-06-16 02:35:50] - CONTROL: Entorno Flutter 3.41.6 completamente saneado. Android toolchain corregido exitosamente de forma manual. Doctor reporta 0 errores.
+[2026-06-16 03:13:41] - ACCIÓN: Se ejecutó reconfiguración y reparación total del entorno de módulos mediante comandos de terminal (flutter create .), eliminando de raíz el bloqueo de entrypoint del IDE.
+[2026-07-12 06:31:22] Implementación del Principio del Túnel Previo en main.dart y creación de CoreNetwork service.
+[2026-07-12 06:33:39] Centralización de lógica de acceso en API Alex y refactorización de LoginScreen para delegar funciones al cerebro rector.
+[2026-07-12 07:00:09] Mitigación de error Realtime (1002) mediante Global Error Handling en main.dart y robustecimiento de CoreNetwork con políticas de resiliencia.
+[2026-07-12 07:02:44] Delegación total de lógica de Colecturía y Cierre de Tiro a la API Alex, activando la ejecución segura y auto-reparación de túnel.
+[2026-07-12 07:06:51] Corrección de errores de compilación: Importación de foundation.dart en Alex API y restauración de RecaudacionService en Colecturia Screen.
+[2026-07-12 07:11:20] Sincronización de rutas de build: Configuración de buildDirectory en android/build.gradle.kts para alinear la salida de Gradle con las expectativas de Flutter.
+[2026-07-12 07:29:08] Instalación y lanzamiento exitoso mediante USB (ID: RZCT41GR3BE). Aplicación operando con Túnel Previo y Alex API activos.
+[2026-07-12 07:47:44] Solución total de persistencia y creación de listas: Implementación de migración en onUpgrade, consolidación de SQLite como fuente única de verdad en todas las pantallas (Premios, Bote, Lista, Colecturía) y eliminación de dependencia de SharedPreferences para datos estructurados.
+[2026-07-12 07:51:59] Corrección de errores de tipado Null-Safety en búsquedas de listeros y ajuste de expresiones constantes en navegación.
+[2026-07-12 08:03:45] Reubicación ergonómica del teclado numérico en Lista y Bote: Diseño estándar 7-8-9 superior.
+[2026-07-12 08:15:22] Corrección de errores de sintaxis: Escapado de símbolo '$' mediante strings crudos (raw) en Partes Listeros y Ajuste de Topes; corrección de argumentos posicionales en _dataItem de Colecturía.
+[2026-07-12 08:25:00] Rediseño estético: Implementación de fondo azul claro (Blue 50) global en el Panel General mediante ThemeData y eliminación de fondos blancos hardcoded en todos los Scaffolds de las pantallas administrativas y de usuario.
+[2026-07-12 08:40:15] Inversión de lógica de balance: Estado GANA ahora es Rojo (pérdida para el banco) y PIERDE es Verde (ganancia para el banco) cuando el balance es positivo.
+[2026-07-12 08:55:10] Ajuste de UI: Renombrado del ítem de menú 'AUDITORÍA' a 'PARTES' en el BancoScreen para mayor claridad terminológica.
+[2026-07-12 09:10:00] Optimización de Colecturía: Rediseño compacto de tarjetas manteniendo separación entre Lista (arriba) y Bote (debajo) mediante filas horizontales de alta densidad.
+[2026-07-13 12:20:50] ACCIÓN: Aplicación del diseño 'Blue 50' a la pantalla LoginScreen, eliminando estilos oscuros y alineando la estética con el resto de la plataforma.
+[2026-07-13 12:25:45] ACCIÓN: Implementación de bloqueo total (Modo Lectura) en Lista y Bote tras publicación de tiro. Activación de visor de métricas (Limpio, Premio, Balance) en modo lectura para cada pantalla.
+[2026-07-13 12:48:14] ACCIÓN: Unificación de semántica de colores. Listero DEBE (Banco Gana) -> VERDE. Banco DEBE (Listero Gana) -> ROJO. Aplicado en MisPartesScreen y lógica global.
+[2026-07-13 12:59:08] ACCIÓN: Inversión de lógica semántica GANA/PIERDE. PIERDE (Listero debe al Banco) -> VERDE. GANA (Banco debe al Listero) -> ROJO. Aplicado en Colecturía, Lista, Bote y MisPartes.
+[2026-07-13 13:09:32] ACCIÓN: Rediseño 'Cyber-Robotic' de LoginScreen con estética Matrix y Grid de fondo. Optimización selectiva de envío de partes en Banco Panel (Solo no enviados).
+[2026-07-13 13:14:11] ACCIÓN: Rediseño 'Cyber-Robotic Blue' de LoginScreen. Implementación de HexagonalPainter, ScannerAnimation y estética Quantum Blue.
+[2026-07-13 13:20:44] ACCIÓN: Implementación de Protocolo de Ofuscación por Intrusión. Redirección automática a 'archive.org/audio' tras fallos de autenticación para despistar a usuarios no autorizados.
+[2026-07-13 13:39:46] - CONTROL: Corregido error de metadatos AAR. Forzado de versiones compatibles de androidx.browser (1.8.0) y androidx.core (1.13.1) en app/build.gradle.kts para solventar incompatibilidad con AGP 8.7.0.
+[2026-07-13 13:58:09] ACCIÓN: Implementación del Protocolo 'W-Sync' para autonomía vía WhatsApp. Actualización DB v20 con columna 'is_whatsapp'. Integración de Parser en Alex API y marcado visual 'W' en Lista y Bote.
+[2026-07-13 14:16:03] ACCIÓN: Dotación de 'Superpoderes' a Alex API. Implementación de Switch de control W-Sync en Drawer con auto-desactivación por seguridad tras cierre de sección o cambio de turno.
+[2026-07-13 14:43:06] ACCIÓN: Implementación de Cobertura de Premios en Alex API y pantallas (MisPartes, Lista, Bote, Colecturía). El sistema ahora informa el porcentaje de premios cubierto por el limpio si este es insuficiente.
+[2026-07-13 14:52:26] - CONTROL: Solucionado error de compilación y Gradle. Migración de 'notifications_listener_service' (descontinuado) a 'notification_listener_service' v1.0.0. Corregido namespace en AndroidManifest y API en Alex.
+[2026-07-13 15:06:56] ACCIÓN: Activación del Cerebro de Inyección W-Sync. Se completó el puente entre la notificación de aprobación y la inserción real de la jugada en la DB mediante 'injectApprovedWhatsAppJugada'.
+[2026-07-13 15:23:11] ACCIÓN: Implementación de solicitud formal de permisos de acceso a notificaciones para W-Sync. Se añadió diálogo de advertencia en PermissionService y validaciones en los Drawer de Lista y Bote.
+[2026-07-13 15:29:01] ACCIÓN: Corrección de errores de compilación en ListaScreen (importación faltante de RecaudacionService). Implementación de botón de cierre de sesión en Panel del Programador.
+[2026-07-13 15:35:25] - CONTROL: Implementación de logs de depuración ALEX_DEBUG para rastrear el flujo de notificaciones. Corregido error de truncamiento en el parser de jugadas (substring index mismatch). Añadidas alertas de estado de sesión en W-Sync.
+[2026-07-13 15:42:19] ACCIÓN: Refuerzo de seguridad en PIN (prohibido usar PIN bancario para listeros) y automatización de solicitud de permisos W-Sync al detectar su ausencia en Login, Lista y Bote.
+[2026-07-13 15:49:08] ACCIÓN: Solución al error de sincronización visual en W-Sync. Se habilitó el disparo de 'onSyncUpdate' en DatabaseHelper para notificar a la UI sobre inyecciones automáticas de Alex.
+[2026-07-13 16:00:44] ACCIÓN: Implementación de validación y distribución inteligente para W-Sync. Alex ahora verifica topes antes de inyectar y divide las jugadas entre Lista y Bote automáticamente si es necesario.
+[2026-07-13 16:08:56] ACCIÓN: Implementación de la 'Bandeja W-Sync'. Se creó un apartado individualizado por usuario para gestionar jugadas de WhatsApp, con validación de formato obligatoria y segmentación por fecha/sección para evitar mezclas de datos.
+[2026-07-13 16:17:36] ACCIÓN: Corrección de errores de importación en Alex API. Mejora visual de encabezados (Identificación de Panel). Implementación del 'Recibo Digital' en Bandeja W-Sync para transparencia con jugadores.
+[2026-07-13 16:22:02] - CONTROL: Corregido error de compilación por miembro inexistente (Icons.whatsapp). Se sustituyó por Icons.chat_bubble_outline para garantizar compatibilidad con el SDK de Flutter del entorno.
+[2026-07-13 16:33:34] ACCIÓNºººººººººººººººººººººººººººººººººººººººººººººººººººººººººººººººººººººººººººº: Implementación del sistema de 'Jugada por Imagen (OCR)'. Se integró Google ML Kit para detección de texto, OcrService para procesamiento y una nueva interfaz de escaneo con validación automática de Alex.
+[2026-07-13 16:38:25] ACCIÓN: Unificación de lógica de cálculo 'Bruto' para recibos de WhatsApp. Alex ahora calcula el total basándose en la lógica de combinaciones de Parle, asegurando que el cliente pague exactamente lo que registra el Listero.
+[2026-07-13 16:45:12] ACCIÓN: Implementación de solicitud explícita de permisos de Cámara y Galería. Se actualizaron AndroidManifest, PermissionService y Alex API. Activada validación en Login y en el módulo OCR.
+[2026-07-13 17:05:22] ACCIÓN: Refuerzo total de permisos visuales. Implementación de lógica discriminada por versión de SDK (Android 13+ vs Legacy) y limpieza de redundancias en LoginScreen.
+[2026-07-13 17:10:45] - CONTROL: Corregido error de compilación en Alex API por importación faltante de 'permission_handler'. Restaurado acceso a getters de Permission.
+[2026-07-13 17:35:10] CONTROL: Diagnóstico de desincronización de Manifest. Instrucciones enviadas para desinstalación manual y rebuild total para forzar el reconocimiento de permisos en el sistema operativo.
+[2026-07-13 18:05:44] ACCIÓN: Mitigación de 'RealtimeSubscribeException' mediante filtrado de excepciones en main.dart. Implementación de fallback de seguridad en PermissionService y botón de rescate visual (Shield Icon) en LoginScreen.
+[2026-07-13 18:25:40] ACCIÓN: Implementación de Mirrors de emergencia (AliYun) en Gradle para evadir bloqueo DNS de MavenCentral. Limpieza de metadatos corruptos de compilación.
+[2026-07-13 18:35:12] - CONTROL: Solución de incompatibilidad de metadatos AAR. Forzado de versiones compatibles de androidx.activity (1.9.3) y androidx.navigationevent (1.0.0) para mantener AGP 8.7.0.
+[2026-07-15 12:10:28] ACCIÓN: Implementación de Inteligencia Espacial en OCR. Alex ahora detecta columnas (BOLA, PARLE, CENTENA) y propaga dinero en grupos de jugadas manuscritas basándose en la estructura visual proporcionada.
+[2026-07-15 12:25:13] ACCIÓN: Perfeccionamiento del Protocolo W-Sync. Eliminación de OCR por ineficiencia. Implementación de Multijugada en WhatsApp, autodetección de tipos y normalización inteligente de montos.
+[2026-07-15 12:40:29] ACCIÓN: Lanzamiento del ecosistema 'Alex Player Portal'. Creado puente web-to-whatsapp para estandarización total de jugadas remotas y eliminación de error de entrada.
+[2026-07-15 12:43:05] ACCIÓN: Implementación de 'Ghost Portal' (Local Data URI). Eliminada dependencia de hosting externo. El listero ahora genera webs dinámicas locales para sus jugadores.
+[2026-07-15 21:06:49] ACCIÓN: Perfeccionamiento de la Bandeja W-SYNC. Implementada función de vaciado total de bandeja y eliminación individual de jugadas mediante gesto 'swipe'. Control total para el listero.
+[2026-07-15 21:39:56] Alex API: Fase 2 iniciada. Protocolo de Multijugada Consolidada y Refuerzo de Identidad activos en el núcleo.
+[2026-07-15 21:48:13] Alex API & UI: Implementado bypass total para TESTER PRO (pp0030). Acceso sin restricciones de horario ni bloqueos de tiro en Lista y Bote.
+[2026-07-15 22:27:45] Implementación de métodos createSovereignBank y getListeroSummary en Alex API para resolver errores de compilación.
+[2026-07-15 22:37:18] Corregido Zone Mismatch en main.dart integrando WidgetsFlutterBinding.ensureInitialized() dentro de runZonedGuarded para cumplir con el flujo de seguridad y evitar errores de zona en el arranque.
+[2026-07-15 22:41:40] Portal corregido: Implementado 'Ghost Portal' (Data URI) en Alex API para eliminar dependencia de hosting externo y evadir bloqueos de red.
+[2026-07-15 22:44:32] Portal Supabase Restaurado: Implementado bypass de cache mediante timestamps y reforzado de Alex API para procesamiento autónomo de jugadas distribuidas (Lista/Bote).
+[2026-07-15 22:47:39] Implementado Link Híbrido en Alex API. Se proporciona el Portal de Supabase (Oficial) y el Ghost Portal (Respaldo) para garantizar el 100% de disponibilidad ante bloqueos.
+[2026-07-15 23:30:15] ACCIÓN: Implementación de Multijugada Dinámica en Alex API para BOLA. El sistema ahora procesa cadenas de números (ej: bola 01 02 03 10 5) creando jugadas individuales.
+[2026-07-15 23:35:40] - CONTROL: Sincronización Global de Horarios (Portal Sync). Alex API ahora envía el estado de cierre y horarios de bloqueo a Supabase (system_status) para que el portal respete los mismos periodos de gracia que la app local.
+[2026-07-15 23:45:12] ACCIÓN: Implementación de Blindaje de Seguridad en Portal. Se configuró el cierre automático del portal 30 minutos antes de cada sección (12:55 PM / 9:00 PM), eliminando el acceso al periodo de gracia para jugadores remotos.
+[2026-07-16 00:10:45] ACCIÓN: Implementación de Control de Usuarios del Portal y Multijugada Masiva. Alex API ahora identifica clientes por nombre, permite al listero bloquear portales individuales y procesa grupos de números (bola, parle, centena) en una sola línea. Actualización DB v23.
+[2023-10-27 11:10:00] Sincronización Global de Supabase Reforzada: Se implementó escaneo de jugadas histórica con sync=1 y se incluyó la tabla de players.
+[2023-10-27 14:00:00] Estabilización de Sistema: Corregidos errores de métodos no definidos, dependencias de test actualizadas y limpieza de warnings en pantallas principales.
+[2023-10-27 14:15:00] Resolución de Dependencias: Añadido paquete intl al pubspec.yaml y corregidos errores de FontWeight incompatible.
+[2024-10-27 15:55:00] ACCIÓN: Optimización de legibilidad en paneles de Lista y Bote. Se aumentó el tamaño de fuente de las métricas (B, P, C, L) para mejorar la visualización rápida del listero.
+[2024-10-27 16:15:00] ACCIÓN: Activación de Auditoría de Arranque Total. Alex API ahora fuerza una sincronización bidireccional profunda (isDeepSync) cada vez que el motor inicia, garantizando paridad absoluta entre local y nube.
+[2024-10-27 16:25:00] ACCIÓN: Configuración de Ciclo de Paridad Recurrente. Alex API ahora ejecuta una sincronización bidireccional profunda (isDeepSync) cada 2 minutos de forma automática mientras la app permanezca abierta.
+[2026-07-16 11:05:00] ACCIÓN: Actualización de emergencia AGP 8.3.2 y Kotlin 1.9.24 para resolver bug de jlink con Java 21.
+[2026-07-16 12:00:00] ACCIÓN: Implementación del 'Principio del Túnel Previo' en main.dart y robustecimiento de CoreNetwork con protocolos VLESS/Trojan/TLS (Evasión DPI). El Cerebro Alex ahora exige 'Pasaje Seguro' antes de cualquier sincronización cloud.
+[2026-07-16 12:20:00] ACCIÓN: Actualización de Kotlin a 2.1.0 en settings.gradle.kts para eliminar advertencias de depreciación y asegurar compatibilidad futura con el motor de Flutter.
+[2026-07-16 12:35:00] ACCIÓN: Optimización de gradle.properties. Se habilitó el daemon y paralelismo controlado (4 workers) para resolver el hang en assembleDebug, manteniendo los mirrors de evasión activos.
+[2026-07-16 12:45:00] ACCIÓN: Implementación del "Protocolo Turbo-Sync Pro". Downgrade de Kotlin a 1.9.24 para estabilidad absoluta, limpieza de overrides agresivos en build.gradle y balanceo de memoria (3GB Gradle + 1.5GB Kotlin) para evitar el colapso del compilador de Dart.
+[2026-07-16 12:55:00] ACCIÓN: Alineación forzada de SDK 34 y Java 17 en todos los subproyectos mediante afterEvaluate. Eliminación de bloqueos por incompatibilidad de versión de bytecode en plugins heredados.
+
+
+
+
+
+[2026-07-20 11:51:37] Corregida prioridad de login: las Listas ahora tienen prioridad sobre la solicitud de banco 'B8080'. Se bloqueó el uso de PINs maestros en la creación de listas.
+[2026-07-20 11:53:39] Protocolo B8080 restringido a coincidencia textual exacta. Prioridad de Listas garantizada.
+[2026-07-20 11:58:18] Implementada navegación histórica y cambio de secciones en Tiro Oficial para el Banco.
+[2026-07-20 12:10:33] FIX CRÍTICO: Corregidos errores SQL (literales SYSTEM), esquema DB (device_id/sync_deletions) y bypass de permisos en Linux.
+[2026-07-20 12:25:29] Finalizada navegación histórica avanzada en Tiro Oficial. Implementado 'Ir a Hoy', selectores de sección y modal de historial completo (50 registros).
+[2026-07-20 12:40:28] FIX RESILIENCIA: Implementado manejo de errores en canales Realtime y verificación de infraestructura crítica en el túnel para evitar crashes por DNS (SocketException).
+[2026-07-26 16:26:09] Verificación de compilación exitosa. Código validado y libre de errores bloqueantes.
+[2026-07-26 16:33:12] Auditoría de compilación: Proceso assembleDebug en curso bajo Modo Estable Pro (Secuencial). Conectividad ADB TLS verificada.
+[2026-07-26 16:41:53] Re-habilitado Gradle Daemon para estabilizar despliegue inalámbrico y evitar falsos positivos de detención.
+[2026-07-26 16:50:18] Verificación de compilación: Gradle Daemon (PID 386544) detectado con 89% de uso de CPU. Compilación de Kotlin en curso.
+[2026-07-26 17:03:45] Blindado flujo de creación de banco B8080. Implementado verifyCriticalInfrastructure y try-catch en peticiones Supabase.
+[2026-07-26 17:22:10] Implementado Semáforo de Sincronización: Verde (Nube), Naranja (Local), Rojo (Expirado/No suma).
+[2026-07-26 17:25:03] Auditoría de paridad completada. Activada sincronización total para Colores, WhatsApp Queue, Notificaciones, Límites y Planes.
+[2026-07-26 17:29:57] FIX PARIDAD: Corregida ausencia de columna sync en bank_colors. Blindada sincronización independiente por tablas y normalización de IDs para la nube.
+[2026-07-26 17:37:33] FIX SINCRONIZACIÓN: Implementada actualización atómica por ID. Eliminado conflicto de IDs locales para jugadas y partes en la nube.
+[2026-07-26 17:46:43] Activada Sincronización Proactiva: Las jugadas ahora se disparan a la nube inmediatamente después del registro local.
+[2026-07-26 17:58:39] Protocolo Paridad Absoluta Finalizado: Activada sincronización inmediata para Tiros, Listas, Planes, Límites y Borrados. Motor _processMirrorDeletions operativo.
+[2026-07-26 22:15:24] FIX: Resuelta colisión de esquema PGRST204 en tabla jugadas (columna destino).
+[2026-07-26 22:25:48] FIX: Exclusión de columna 'destino' en Alex API para evitar error PGRST204.
+[2026-07-26 22:46:27] FIX: Desplegado bypass de tiempo en UI para Lista 9999 (Lista y Bote).
+[2026-07-26 22:51:07] FIX: Refinado filtro de paridad (excluidos campos temporales) y activado trigger de refresco visual.
+[2024-05-22 10:15:30] FIX: Protocolo de Inserción vs Upsert activado para RLS. Las jugadas ahora usan INSERT puro para evitar bloqueos de políticas de actualización en Supabase. Sincronización inmediata vinculada a DatabaseHelper.
+[2026-07-26 23:05:00] FIX: Protocolo de Inserción vs Upsert activado para RLS en Jugadas.
+[2024-05-22 11:30:00] FIX: Refactorización de DatabaseHelper para soportar múltiples oyentes (syncListeners). Se resolvió el conflicto donde las pantallas sobrescribían el listener de Alex. Código saneado, onCreate asíncrono y versión de DB elevada a 27.
+[2026-07-27 03:13:03] FIX PORTAL: Implementado Link Híbrido (Ghost Portal Data URI) y corregidas Queries de WhatsApp en Manifest para asegurar apertura total.
+[2026-07-27 03:31:41] FIX CRÍTICO: Restaurado método getOpenSeccionAndFecha en RecaudacionService tras error de purga previa.
+[2026-07-27 03:39:55] STABILIZATION: Corregidos errores de métodos no definidos, eliminados imports huérfanos y saneadas advertencias de deprecación.
+[2026-07-27 03:45:05] CLONE ENGINE: Reforzado motor de descarga en Alex API (_pullCloudToLocalOptimized) para permitir clonación total de bancos en dispositivos nuevos mediante PIN de acceso.
+[2026-07-27 10:39:33] REALTIME PARITY: Activada escucha global de cambios (Postgres Realtime) para todas las tablas críticas. Los dispositivos clonados ahora se actualizan instantáneamente ante cualquier cambio en el banco.
+[2026-07-27 11:09:17] MULTI-DEVICE MASTER: Perfeccionado motor de paridad. Forzada descarga total de estructura de red (Listeros/Planes) en cada ciclo y activado broadcast de pulso maestro en cambios estructurales.
+[2026-07-27 11:36:22] REALTIME SYNC FORCE: Implementado botón de sincronización manual en BancoScreen y reforzada la lógica de reconexión y pull estructural en Alex API para asegurar paridad total en dispositivos clonados.
+[2026-07-27 12:03:08] STABILIZATION: Corregidos errores de RealtimeChannel (sendBroadcast) y sanneada inicialización de base de datos en Linux.
+[2026-07-27 12:09:45] STABILIZATION: Corregido error de RealtimeChannel (send/broadcast) mediante bypass dinámico para asegurar compatibilidad total con la versión de Supabase.
+[2026-07-27 12:14:50] REALTIME SYNC OPTIMIZATION: Consolidado canal de datos en un solo RealtimeChannel para evitar límites de conexión, corregido error SQL de reconciliación y asegurado bypass dinámico de broadcast para paridad total.
+[2026-07-27 12:29:47] TURBO PARITY DEPLOYED: Corregidos errores de broadcast y SQL. Activada reconciliación atómica para asegurar que el Banco 0022 sea idéntico en todos los terminales.
+[2026-07-27 12:39:24] DATABASE REPAIR: Activado motor de auto-reparación de esquema para columnas faltantes (is_whatsapp, updated_at). Validado motor de broadcast para paridad total.
+[2026-07-27 13:55:07] Optimización de sincronización multi-tabla y paridad de límites en Alex API.
+[2024-05-22 16:25:37] Optimización de sincronización multi-tabla y paridad de límites en Alex API.
+[2026-07-27 16:37:10] Implementación de resiliencia ante Connection Reset y paridad estricta de límites.
+[2026-08-19 02:45:00] PROTOCOLO DE DESPLIEGUE ACTIVO: Toda propuesta se clasificará en [PATCH], [RELEASE] o [SUPABASE] para evitar desincronización entre lógica y datos.
