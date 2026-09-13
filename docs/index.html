@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S-RECORD - Instalación Oficial para iPhone</title>
+    <title>S-RECORD - Portal Oficial de Instalación Multiplataforma</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -68,6 +68,17 @@
         .btn-install:active {
             transform: scale(0.98);
         }
+        .badge {
+            display: inline-block;
+            background-color: #0F172A;
+            border: 1px solid #334155;
+            color: #38BDF8;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 4px 12px;
+            border-radius: 20px;
+            margin-bottom: 20px;
+        }
         .footer {
             margin-top: 24px;
             font-size: 11px;
@@ -78,14 +89,43 @@
 <body>
     <div class="card">
         <div class="icon">🎰</div>
-        <h1>S-RECORD iOS</h1>
-        <p>Instalación nativa directa para iPhone vía Safari OTA (Over-The-Air).</p>
-        <a href="itms-services://?action=download-manifest&url=https://alexacuadro.github.io/srecord/manifest.plist" class="btn-install">
-            📲 INSTALAR EN MI IPHONE
+        <h1>S-RECORD</h1>
+        <div id="deviceBadge" class="badge">DETECTANDO DISPOSITIVO...</div>
+        <p id="deviceDesc">Portal oficial de instalación para Android y iPhone.</p>
+
+        <a id="btnInstall" href="#" class="btn-install">
+            CARGANDO...
         </a>
     </div>
     <div class="footer">
         S-RECORD Sistema de Gestión Multibanco v1.1.48
     </div>
+
+    <script>
+        const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+        const btn = document.getElementById('btnInstall');
+        const badge = document.getElementById('deviceBadge');
+        const desc = document.getElementById('deviceDesc');
+
+        const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
+        const isAndroid = /android/i.test(userAgent);
+
+        if (isIOS) {
+            badge.innerText = '🍎 DISPOSITIVO iOS (IPHONE)';
+            desc.innerText = 'Instalación nativa directa para iPhone vía Safari Over-The-Air (OTA).';
+            btn.innerText = '📲 INSTALAR EN MI IPHONE';
+            btn.href = 'itms-services://?action=download-manifest&url=https://alexacuadro.github.io/srecord/manifest.plist';
+        } else if (isAndroid) {
+            badge.innerText = '🤖 DISPOSITIVO ANDROID';
+            desc.innerText = 'Descarga directa del paquete APK oficial para teléfonos Android.';
+            btn.innerText = '🤖 DESCARGAR APK PARA ANDROID';
+            btn.href = 'https://vonuhrbjchufqzqygqgt.supabase.co/storage/v1/object/public/updates/srecord-latest.apk';
+        } else {
+            badge.innerText = '💻 NAVEGADOR WEB';
+            desc.innerText = 'Abre este enlace desde un celular Android o iPhone para instalar la app.';
+            btn.innerText = '📲 DESCARGAR S-RECORD';
+            btn.href = 'https://alexacuadro.github.io/srecord/manifest.plist';
+        }
+    </script>
 </body>
 </html>
