@@ -110,21 +110,31 @@
         const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !window.MSStream;
         const isAndroid = /android/i.test(userAgent);
 
+        const defaultApkUrl = "https://vonuhrbjchufqzqygqgt.supabase.co/storage/v1/object/public/app-updates/app-release-v47-1789239551906.apk";
+        const apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZvbnVocmJqY2h1ZnF6cXlncWd0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NDE0NDI5OCwiZXhwIjoyMDk5NzIwMjk4fQ.siz8OYqzfMuOI0dxUuwpQdrk1ywdwSqyKih3wOU4w_Q";
+
         if (isIOS) {
             badge.innerText = '🍎 DISPOSITIVO iOS (IPHONE)';
             desc.innerText = 'Instalación nativa directa para iPhone vía Safari Over-The-Air (OTA).';
             btn.innerText = '📲 INSTALAR EN MI IPHONE';
             btn.href = 'itms-services://?action=download-manifest&url=https://alexacuadro.github.io/srecord/manifest.plist';
-        } else if (isAndroid) {
+        } else {
             badge.innerText = '🤖 DISPOSITIVO ANDROID';
             desc.innerText = 'Descarga directa del paquete APK oficial para teléfonos Android.';
             btn.innerText = '🤖 DESCARGAR APK PARA ANDROID';
-            btn.href = 'https://vonuhrbjchufqzqygqgt.supabase.co/storage/v1/object/public/updates/srecord-latest.apk';
-        } else {
-            badge.innerText = '💻 NAVEGADOR WEB';
-            desc.innerText = 'Abre este enlace desde un celular Android o iPhone para instalar la app.';
-            btn.innerText = '📲 DESCARGAR S-RECORD';
-            btn.href = 'https://alexacuadro.github.io/srecord/manifest.plist';
+            btn.href = defaultApkUrl;
+
+            // Obtener dinámicamente la última APK publicada en Supabase
+            fetch('https://vonuhrbjchufqzqygqgt.supabase.co/rest/v1/app_updates?select=apk_url,version_code&order=version_code.desc&limit=1', {
+                headers: { 'apikey': apiKey }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data && data.length > 0 && data[0].apk_url) {
+                    btn.href = data[0].apk_url;
+                }
+            })
+            .catch(() => {});
         }
     </script>
 </body>
