@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S-RECORD - Instalación Oficial para iPhone</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0F172A;
+            color: #FFFFFF;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+            text-align: center;
+        }
+        .card {
+            background-color: #1E293B;
+            border: 1px solid #334155;
+            border-radius: 24px;
+            padding: 32px 24px;
+            max-width: 380px;
+            width: 100%;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+        .icon {
+            width: 90px;
+            height: 90px;
+            background: linear-gradient(135deg, #1A237E, #00B0FF);
+            border-radius: 22px;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 42px;
+            box-shadow: 0 10px 15px -3px rgba(0, 176, 255, 0.3);
+        }
+        h1 {
+            font-size: 22px;
+            margin: 0 0 8px;
+            color: #38BDF8;
+            font-weight: 800;
+        }
+        p {
+            font-size: 13px;
+            color: #94A3B8;
+            margin: 0 0 28px;
+            line-height: 1.5;
+        }
+        .btn-install {
+            display: inline-block;
+            width: 100%;
+            background: linear-gradient(135deg, #10B981, #059669);
+            color: #FFFFFF;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 15px;
+            padding: 16px 0;
+            border-radius: 14px;
+            box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.4);
+            transition: transform 0.2s;
+        }
+        .btn-install:active {
+            transform: scale(0.98);
+        }
+        .footer {
+            margin-top: 24px;
+            font-size: 11px;
+            color: #64748B;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">🎰</div>
+        <h1>S-RECORD iOS</h1>
+        <p>Instalación nativa directa para iPhone vía Safari OTA (Over-The-Air).</p>
+        <a href="itms-services://?action=download-manifest&url=https://alexacuadro.github.io/srecord/manifest.plist" class="btn-install">
+            📲 INSTALAR EN MI IPHONE
+        </a>
+    </div>
+    <div class="footer">
+        S-RECORD Sistema de Gestión Multibanco v1.1.48
+    </div>
+</body>
+</html>

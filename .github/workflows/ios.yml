@@ -32,13 +32,15 @@ jobs:
       - name: Build iOS Application (Runner.app)
         run: flutter build ios --release --no-codesign --verbose
 
-      # 5. Empaquetar el Runner.app compilado en formato .ipa
-      - name: Package IPA
+      # 5. Empaquetar el Runner.app compilado en formato .ipa y preparar para Safari OTA
+      - name: Package IPA and Prepare Safari OTA Pages
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
           zip -r srecord-ios.ipa Payload
           rm -rf Payload
+          mkdir -p docs
+          cp srecord-ios.ipa docs/srecord-ios.ipa
 
       # 6. Subir el archivo .ipa resultante como Artefacto de GitHub
       - name: Upload IPA Artifact
@@ -47,3 +49,11 @@ jobs:
           name: srecord-ios-ipa
           path: srecord-ios.ipa
           retention-days: 14
+
+      # 7. Desplegar portal Safari OTA en GitHub Pages
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          keep_files: true
