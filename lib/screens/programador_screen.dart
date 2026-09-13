@@ -34,6 +34,8 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
   final TextEditingController _versionCodeController = TextEditingController();
   final TextEditingController _versionNameController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
+  final TextEditingController _iosUrlController = TextEditingController(text: "https://github.com/alexacuadro/srecord/actions");
+  bool _isTriggeringIos = false;
   File? _selectedApk;
   static const _apkChannel = MethodChannel("com.fusionpro.srecord/apk_info");
 
@@ -516,31 +518,56 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("GESTOR DE ACTUALIZACIONES APK", style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, letterSpacing: 1)),
+          const Text("GESTOR MULTIPLATAFORMA DE ACTUALIZACIONES (ANDROID & iOS)", style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, letterSpacing: 1)),
           const SizedBox(height: 8),
-          const Text("Sube una nueva versión a Supabase Storage y activa el aviso para los usuarios.", style: TextStyle(color: Colors.white38, fontSize: 11)),
-          const SizedBox(height: 30),
+          const Text("Publica versiones globales para Android y gestiona enlaces de TestFlight / Safari para iOS.", style: TextStyle(color: Colors.white38, fontSize: 11)),
+          const SizedBox(height: 25),
           
           TextField(
             controller: _versionCodeController,
             keyboardType: TextInputType.number,
             style: const TextStyle(color: Colors.white),
-            decoration: _inputDecoration("Version Code (ej: 8)", Icons.numbers),
+            decoration: _inputDecoration("Version Code (ej: 48)", Icons.numbers),
           ),
           const SizedBox(height: 15),
           TextField(
             controller: _versionNameController,
             style: const TextStyle(color: Colors.white),
-            decoration: _inputDecoration("Version Name (ej: 1.0.2)", Icons.label_outline),
+            decoration: _inputDecoration("Version Name (ej: 1.1.48)", Icons.label_outline),
           ),
           const SizedBox(height: 15),
           TextField(
             controller: _notesController,
-            maxLines: 3,
+            maxLines: 2,
             style: const TextStyle(color: Colors.white),
             decoration: _inputDecoration("Notas de la versión...", Icons.note_add_outlined),
           ),
-          const SizedBox(height: 25),
+          const SizedBox(height: 15),
+          TextField(
+            controller: _iosUrlController,
+            style: const TextStyle(color: Colors.white),
+            decoration: _inputDecoration("Enlace iOS (TestFlight / GitHub)", Icons.apple),
+          ),
+          const SizedBox(height: 20),
+
+          // BOTÓN DE DISPARO COMPILACIÓN iOS EN LA NUBE
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: _isTriggeringIos ? null : _triggerIosBuild,
+              icon: const Icon(Icons.cloud_sync, color: Colors.amberAccent),
+              label: Text(
+                _isTriggeringIos ? "INICIANDO COMPILACIÓN iOS..." : "🚀 DISPARAR COMPILACIÓN iOS EN GITHUB",
+                style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 11),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Colors.amberAccent),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
           
           InkWell(
             onTap: _pickApk,
@@ -557,7 +584,7 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
                   Icon(_selectedApk != null ? Icons.check_circle : Icons.upload_file, color: _selectedApk != null ? const Color(0xFF10B981) : const Color(0xFF38BDF8), size: 40),
                   const SizedBox(height: 10),
                   Text(
-                    _selectedApk != null ? "APK SELECCIONADA: ${_selectedApk!.path.split('/').last}" : "SELECCIONAR ARCHIVO APK",
+                    _selectedApk != null ? "APK SELECCIONADA: ${_selectedApk!.path.split('/').last}" : "SELECCIONAR ARCHIVO APK (ANDROID)",
                     style: TextStyle(color: _selectedApk != null ? Colors.white : Colors.white54, fontWeight: FontWeight.bold, fontSize: 12),
                     textAlign: TextAlign.center,
                   ),
@@ -707,13 +734,14 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
       versionCode: vCode,
       versionName: _versionNameController.text,
       releaseNotes: _notesController.text,
+      iosUrl: _iosUrlController.text.trim(),
     );
 
     setState(() => _isUploading = false);
 
     if (mounted) {
       if (res['success'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("¡ACTUALIZACIÓN PUBLICADA CON ÉXITO!"), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("¡ACTUALIZACIÓN MULTIPLATAFORMA PUBLICADA CON ÉXITO!"), backgroundColor: Colors.green));
         setState(() {
           _selectedApk = null;
           _versionCodeController.clear();
@@ -723,6 +751,21 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
       } else {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: ${res['error']}"), backgroundColor: Colors.redAccent));
       }
+    }
+  }
+
+  Future<void> _triggerIosBuild() async {
+    setState(() => _isTriggeringIos = true);
+    final res = await _alex.triggerGitHubIosBuild();
+    setState(() => _isTriggeringIos = false);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message'] ?? "Sincronizando con GitHub..."),
+          backgroundColor: res['success'] == true ? Colors.green : Colors.orangeAccent,
+        ),
+      );
     }
   }
 

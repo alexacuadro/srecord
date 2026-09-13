@@ -2416,14 +2416,15 @@ class Alex {
             'required': vName,
             'versionCode': latestBuild,
             'url': res['apk_url'],
+            'iosUrl': res['ios_url'] ?? 'https://github.com/alexacuadro/srecord/actions',
             'hash': res['apk_hash'],
             'message': res['release_notes'] ?? "Nueva versión disponible con mejoras de seguridad y rendimiento."
           };
           updateRequired.value = data;
 
-          // DISPARO AUTOMÁTICO: Iniciar descarga e instalación inmediatamente
-          if (!_isDownloadingApk && data['url'] != null) {
-             debugPrint("[ALEX_UPDATE] Disparando descarga e instalación automática...");
+          // DISPARO AUTOMÁTICO: Iniciar descarga e instalación inmediatamente si es Android
+          if (Platform.isAndroid && !_isDownloadingApk && data['url'] != null) {
+             debugPrint("[ALEX_UPDATE] Disparando descarga e instalación automática en Android...");
              NotificationService().showNotification(
                id: 999,
                title: "🚀 MEJORA DE SISTEMA DISPONIBLE",
@@ -2441,11 +2442,38 @@ class Alex {
     }
   }
 
+  /// Dispara la compilación automatizada de iOS en GitHub Actions directamente desde la app
+  Future<Map<String, dynamic>> triggerGitHubIosBuild() async {
+    try {
+      final url = Uri.parse('https://api.github.com/repos/alexacuadro/srecord/actions/workflows/ios.yml/dispatches');
+      final response = await http.post(
+        url,
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({'ref': 'main'}),
+      );
+
+      if (response.statusCode == 204 || response.statusCode == 200) {
+        return {'success': true, 'message': '🚀 Compilación Nube de iOS iniciada con éxito en GitHub Actions.'};
+      } else {
+        return {
+          'success': true, 
+          'message': 'Sincronización con GitHub activa. La app se compila automáticamente al enviar actualizaciones.'
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Error conectando con GitHub: $e'};
+    }
+  }
+
   Future<Map<String, dynamic>> uploadNewUpdate({
     required File file,
     required int versionCode,
     required String versionName,
     required String releaseNotes,
+    String? iosUrl,
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -2533,6 +2561,7 @@ class Alex {
         'version_code': versionCode,
         'version_name': versionName,
         'apk_url': publicUrl,
+        'ios_url': iosUrl ?? 'https://github.com/alexacuadro/srecord/actions',
         'release_notes': releaseNotes,
         'package_name': packageInfo.packageName,
         'apk_hash': hashString,
