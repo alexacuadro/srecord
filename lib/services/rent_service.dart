@@ -1,6 +1,4 @@
-import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/intl.dart';
 
 enum RentFrequency { quincenalDomingo, semanalDomingo, mensual }
 
@@ -150,6 +148,67 @@ class RentService {
     return false;
   }
 
+  /// Verifica si hay un cobro vencido pendiente que el programador aún no ha marcado como pagado
+  Future<bool> isPaymentOverdue({String? bancoId}) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final start = await getFechaInicio(bancoId: bancoId);
+    
+    if (today.isBefore(start)) return false;
+
+    final isPaid = await isCurrentPeriodPaid(bancoId: bancoId);
+    if (isPaid) return false;
+
+    int daysSinceSunday = (today.weekday - DateTime.sunday) % 7;
+    DateTime lastSunday = today.subtract(Duration(days: daysSinceSunday));
+
+    if (lastSunday.isBefore(start)) return false;
+
+    final freq = await getFrecuencia(bancoId: bancoId);
+    if (freq == RentFrequency.semanalDomingo) {
+      return true;
+    } else if (freq == RentFrequency.quincenalDomingo) {
+      final diffDays = lastSunday.difference(start).inDays;
+      final weeks = (diffDays / 7).round();
+      return (weeks % 2 == 0);
+    }
+    return false;
+  }
+
+  /// Obtiene la fecha del domingo de pago relevante para el período actual o próximo
+  Future<DateTime?> getTargetPaymentSunday({DateTime? referenceDate, String? bancoId}) async {
+    final now = referenceDate ?? DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final start = await getFechaInicio(bancoId: bancoId);
+    final freq = await getFrecuencia(bancoId: bancoId);
+
+    DateTime checkSunday;
+    if (today.weekday == DateTime.saturday) {
+      checkSunday = today.add(const Duration(days: 1));
+    } else {
+      int daysSinceSunday = (today.weekday - DateTime.sunday) % 7;
+      checkSunday = today.subtract(Duration(days: daysSinceSunday));
+    }
+
+    if (checkSunday.isBefore(start)) return start;
+
+    if (freq == RentFrequency.semanalDomingo) {
+      return checkSunday;
+    } else if (freq == RentFrequency.quincenalDomingo) {
+      final diffDays = checkSunday.difference(start).inDays;
+      final weeks = (diffDays / 7).round();
+      if (weeks % 2 == 0) {
+        return checkSunday;
+      } else {
+        final prevSunday = checkSunday.subtract(const Duration(days: 7));
+        if (!prevSunday.isBefore(start)) {
+          return prevSunday;
+        }
+      }
+    }
+    return checkSunday;
+  }
+
   /// Determina si debe mostrarse el cartel de recordatorio de cobro de renta
   Future<bool> shouldShowPaymentReminder({String? bancoId}) async {
     final enabled = await isRentEnabled(bancoId: bancoId);
@@ -160,17 +219,28 @@ class RentService {
 
     final isTodayPayment = await isTodayPaymentDay(bancoId: bancoId);
     final isSaturdayBefore = await isSaturdayBeforePaymentDay(bancoId: bancoId);
+    final isOverdue = await isPaymentOverdue(bancoId: bancoId);
 
-    return isTodayPayment || isSaturdayBefore;
+    return isTodayPayment || isSaturdayBefore || isOverdue;
   }
 
-  /// Verifica si el cobro del día actual ya fue saldado
+  /// Verifica si el cobro del período actual ya fue saldado por el programador
   Future<bool> isCurrentPeriodPaid({String? bancoId}) async {
     final lastPaid = await getUltimoPagoFecha(bancoId: bancoId);
-    if (lastPaid == null) return false;
-    final now = DateTime.now();
-    final todayStr = DateTime(now.year, now.month, now.day).toIso8601String().substring(0, 10);
-    return lastPaid == todayStr;
+    if (lastPaid == null || lastPaid.isEmpty) return false;
+    
+    final targetSunday = await getTargetPaymentSunday(bancoId: bancoId);
+    if (targetSunday == null) return false;
+
+    final targetStr = targetSunday.toIso8601String().substring(0, 10);
+    if (lastPaid == targetStr) return true;
+
+    final paidDate = DateTime.tryParse(lastPaid);
+    if (paidDate != null && !paidDate.isBefore(targetSunday)) {
+      return true;
+    }
+
+    return false;
   }
 
   /// Genera el calendario anual de cobros pactados para un banco

@@ -132,9 +132,47 @@ class _TiroOficialScreenState extends State<TiroOficialScreen> {
     try {
       final bancoId = await Alex().getActiveBancoId() ?? "UNKNOWN";
       
-      // 1. Detección de Conexión a Internet
+      // 1. Guardar resultado localmente en SQLite (Local-First)
+      await _db.saveResultado(_activeFecha, _activeSeccion, n1, n2, n3, bancoId: bancoId, loteria: _activeLoteria);
+      
+      // 2. Orquestar cierre y cálculo local de partes y premios de inmediato
+      final customLimites = await _db.getLimites(bancoId: bancoId, loteria: _activeLoteria);
+      Map<String, String> tiro = {'n1': n1, 'n2': n2, 'n3': n3};
+      
+      List<String> listerosProcesados = await Alex().orchestrateTiroClosing(_activeFecha, _activeSeccion, tiro, customLimites, loteria: _activeLoteria);
+      
+      // 3. Refrescar e informar a la interfaz local inmediatamente
+      TiroService().refreshTiro(_activeFecha, _activeSeccion, loteria: _activeLoteria);
+      TiroService().notifyNewTiro({'fecha': _activeFecha, 'seccion': _activeSeccion, 'loteria': _activeLoteria, 'n1': n1, 'n2': n2, 'n3': n3});
+      _db.notifySyncUpdate(-999);
+
+      // 4. Detección de Conexión y transmisión remota
       bool isOnline = CoreNetwork().isConnected;
-      if (!isOnline) {
+      if (isOnline) {
+        // Subir a la nube y emitir pulso de tiempo real para este banco
+        await Alex().syncDataToCloud(isDeepSync: true);
+        Alex().broadcastSyncPulse(isDeep: true);
+
+        final String s1 = BackgroundService.mapToLargeSpheres(n1);
+        final String s2 = BackgroundService.mapToLargeSpheres(n2);
+        final String s3 = BackgroundService.mapToLargeSpheres(n3);
+
+        final String bigTextStr = "🎰 TIRO GANADOR OFICIAL ($_activeLoteria - $_activeSeccion)\n"
+            "-----------------------------------------\n"
+            "🟡 CENTENA:   [ $s1 ]\n"
+            "🔵 CORRIDO 1: [ $s2 ]\n"
+            "🟠 CORRIDO 2: [ $s3 ]\n"
+            "-----------------------------------------\n"
+            "📅 FECHA: $_activeFecha";
+
+        NotificationService().showNotification(
+          id: 8888,
+          title: "🎰 TIRO PUBLICADO CON ÉXITO ($_activeLoteria)",
+          body: "Servicio Activo. 🟡 C: $s1 | 🔵 C1: $s2 | 🟠 C2: $s3",
+          bigText: bigTextStr,
+          payloadKey: "bank_tiro_${_activeLoteria}_${_activeFecha}_${_activeSeccion}_$n1$n2$n3",
+        );
+      } else {
         if (mounted) {
           showDialog(
             context: context,
@@ -142,13 +180,13 @@ class _TiroOficialScreenState extends State<TiroOficialScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               title: const Row(
                 children: [
-                  Icon(Icons.wifi_off, color: Colors.redAccent, size: 28),
+                  Icon(Icons.wifi_off, color: Colors.orangeAccent, size: 28),
                   SizedBox(width: 10),
-                  Expanded(child: Text("SIN CONEXIÓN A INTERNET", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                  Expanded(child: Text("GUARDADO EN MODO OFFLINE", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15))),
                 ],
               ),
               content: const Text(
-                "⚠️ ATENCIÓN: Tu dispositivo no tiene conexión a internet. El tiro ganador se guardó localmente en el banco, pero NO PUDO SER ENVIADO a las listas. Conéctese a internet para enviar las notificaciones a sus listeros.",
+                "⚠️ SIN CONEXIÓN: El tiro ganador se guardó localmente y se calcularon todos los partes y premios en este banco. Se sincronizará automáticamente con la nube al reconectarse.",
                 style: TextStyle(fontSize: 13),
               ),
               actions: [
@@ -157,43 +195,8 @@ class _TiroOficialScreenState extends State<TiroOficialScreen> {
             ),
           );
         }
-        return;
       }
 
-      // 2. Guardar resultado localmente
-      await _db.saveResultado(_activeFecha, _activeSeccion, n1, n2, n3, bancoId: bancoId, loteria: _activeLoteria);
-      
-      // 3. Subir a la nube y emitir pulso de tiempo real para este banco
-      await Alex().syncDataToCloud(isDeepSync: true);
-      Alex().broadcastSyncPulse(isDeep: true);
-
-      // 4. El primer dispositivo que recibe la notificación es el MISMO BANCO (Comprobación de Servicio)
-      final String s1 = BackgroundService.mapToLargeSpheres(n1);
-      final String s2 = BackgroundService.mapToLargeSpheres(n2);
-      final String s3 = BackgroundService.mapToLargeSpheres(n3);
-
-      final String bigTextStr = "🎰 TIRO GANADOR OFICIAL ($_activeLoteria - $_activeSeccion)\n"
-          "-----------------------------------------\n"
-          "🟡 CENTENA:   [ $s1 ]\n"
-          "🔵 CORRIDO 1: [ $s2 ]\n"
-          "🟠 CORRIDO 2: [ $s3 ]\n"
-          "-----------------------------------------\n"
-          "📅 FECHA: $_activeFecha";
-
-      NotificationService().showNotification(
-        id: 8888,
-        title: "🎰 TIRO PUBLICADO CON ÉXITO ($_activeLoteria)",
-        body: "Servicio Activo. 🟡 C: $s1 | 🔵 C1: $s2 | 🟠 C2: $s3",
-        bigText: bigTextStr,
-        payloadKey: "bank_tiro_${_activeLoteria}_${_activeFecha}_${_activeSeccion}_$n1$n2$n3",
-      );
-      
-      final customLimites = await _db.getLimites(bancoId: bancoId, loteria: _activeLoteria);
-      Map<String, String> tiro = {'n1': n1, 'n2': n2, 'n3': n3};
-      
-      List<String> listerosProcesados = await Alex().orchestrateTiroClosing(_activeFecha, _activeSeccion, tiro, customLimites, loteria: _activeLoteria);
-      TiroService().refreshTiro(_activeFecha, _activeSeccion, loteria: _activeLoteria);
-      
       if (mounted) {
         _showSummaryDialog(listerosProcesados);
         FocusScope.of(context).unfocus();
@@ -522,7 +525,9 @@ class _TiroOficialScreenState extends State<TiroOficialScreen> {
                       ),
                     ),
                     tooltip: "Seleccionar Sección",
-                    onSelected: (val) {
+                    onSelected: (val) async {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setString("sync_seccion", val);
                       setState(() => _activeSeccion = val);
                       _loadResultado(force: true);
                     },
@@ -595,38 +600,23 @@ class _TiroOficialScreenState extends State<TiroOficialScreen> {
     );
   }
 
-  Widget _seccionChip(String s, IconData icon) {
-    bool isSel = _activeSeccion == s;
-    String label = s;
-    if (_activeLoteria == "GEORGIA") {
-      if (s == "MIDDAY") label = "MAÑANA";
-      if (s == "EVENING") label = "TARDE";
-      if (s == "NIGHT") label = "NOCHE";
-    }
-    return ChoiceChip(
-      label: Text(label),
-      avatar: Icon(icon, size: 16, color: isSel ? Colors.white : Colors.blue),
-      selected: isSel,
-      selectedColor: primaryColor,
-      labelStyle: TextStyle(color: isSel ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
-      onSelected: (val) {
-        if (val) {
-          setState(() => _activeSeccion = s);
-          _loadResultado(force: true);
-        }
-      },
-    );
-  }
-
   Future<void> _selectFecha() async {
+    final openData = RecaudacionService.getOpenSeccionAndFecha(loteria: _activeLoteria);
+    DateTime maxDate = DateTime.parse(openData["fecha"]!);
+    DateTime initDate = DateTime.tryParse(_activeFecha) ?? DateTime.now();
+    if (initDate.isAfter(maxDate)) initDate = maxDate;
+
     DateTime? picked = await showDatePicker(
       context: context, 
-      initialDate: DateTime.parse(_activeFecha), 
+      initialDate: initDate, 
       firstDate: DateTime(2024), 
-      lastDate: DateTime.now().add(const Duration(days: 365))
+      lastDate: maxDate
     );
     if (picked != null) {
-      setState(() => _activeFecha = picked.toString().substring(0, 10));
+      final newFecha = picked.toString().substring(0, 10);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("sync_fecha", newFecha);
+      setState(() => _activeFecha = newFecha);
       _loadResultado(force: true);
     }
   }

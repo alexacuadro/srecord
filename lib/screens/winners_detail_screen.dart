@@ -60,7 +60,8 @@ class WinnersDetailScreen extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text("FECHA: $fecha", style: TextStyle(fontWeight: FontWeight.bold, color: regentColor, fontSize: 12)),
+                Expanded(child: Text("FECHA: $fecha", style: TextStyle(fontWeight: FontWeight.bold, color: regentColor, fontSize: 12), overflow: TextOverflow.ellipsis)),
+                const SizedBox(width: 8),
                 Text("TOTAL PREMIADOS: ${winners.length}", style: TextStyle(fontWeight: FontWeight.bold, color: regentColor, fontSize: 12)),
               ],
             ),

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:srecord/screens/login_screen.dart';
@@ -105,6 +106,11 @@ class _UpdateScreenState extends State<UpdateScreen> {
   }
 
   Future<void> _checkForUpdate() async {
+    if (!Platform.isAndroid) {
+      _navigateToLogin();
+      return;
+    }
+
     setState(() {
       _isCheckingForUpdate = true;
     });
@@ -145,7 +151,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
       _downloadStatus = "Iniciando descarga...";
     });
     
-    await Alex().downloadAndInstallApk(_updateData!['url']);
+    await Alex().downloadAndInstallApk(_updateData!['url'], versionCode: _updateData?['versionCode']);
   }
 
   Future<void> _navigateToLogin() async {

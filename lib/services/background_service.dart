@@ -64,7 +64,11 @@ class BackgroundService {
       debugPrint("⚠️ BackgroundService.invoke: Ignorado en esta plataforma.");
       return;
     }
-    FlutterBackgroundService().invoke(method, args);
+    try {
+      FlutterBackgroundService().invoke(method, args);
+    } catch (e) {
+      debugPrint("⚠️ BackgroundService.invoke error: $e");
+    }
   }
 
   static Stream<Map<String, dynamic>?> on(String method) {
@@ -103,11 +107,6 @@ class BackgroundService {
     final prefs = await SharedPreferences.getInstance();
 
     debugPrint("[BG_SERVICE] Iniciando Escucha Realtime (Nervio Central)...");
-
-    // 3. Obtener Identidad para Filtrado
-    final String bancoId = prefs.getString("active_banco_id") ?? "UNKNOWN";
-    final String userRole = prefs.getString("user_role") ?? "LISTERO";
-    final String listeroPin = prefs.getString("current_listero_pin") ?? "";
 
     // CACHÉ DE EVASIÓN DE DUPLICADOS (Soberanía de Isolate)
     final Set<String> notifiedUuids = {};
@@ -384,18 +383,30 @@ class BackgroundService {
         ).subscribe();
 
         // --- ESCUCHA DE ACTUALIZACIONES CRÍTICAS ---
-        updateChan = supabase.channel('public:app_updates');
-        updateChan!.onPostgresChanges(
-          event: PostgresChangeEvent.insert,
+        updateChan = supabase.channel('system_updates');
+        updateChan!.onBroadcast(
+          event: 'NEW_APP_UPDATE',
+          callback: (payload) async {
+            final String vName = payload['version_name']?.toString() ?? 'NUEVA';
+            await notificationService.showNotification(
+              id: 999,
+              title: "🚀 MEJORA DE SISTEMA DISPONIBLE",
+              body: "Descargando versión $vName automáticamente...",
+              payloadKey: "update_available_$vName",
+            );
+            service.invoke('onUpdateDetected', payload);
+          },
+        ).onPostgresChanges(
+          event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'app_updates',
           callback: (payload) async {
             final data = payload.newRecord;
-            final String vName = data['version_name']?.toString() ?? 'NEW';
+            final String vName = data['version_name']?.toString() ?? 'NUEVA';
             await notificationService.showNotification(
               id: 999,
               title: "🚀 MEJORA DE SISTEMA DISPONIBLE",
-              body: "Versión $vName lista. Toca para optimizar tu equipo.",
+              body: "Descargando versión $vName automáticamente...",
               payloadKey: "update_available_$vName",
             );
             service.invoke('onUpdateDetected', data);
@@ -406,7 +417,7 @@ class BackgroundService {
       } finally {
         isSettingUp = false;
       }
-    };
+    }
 
     service.on('reloadSubscriptions').listen((_) async {
       debugPrint("[BG_SERVICE] Evento reloadSubscriptions recibido.");
@@ -429,11 +440,6 @@ class BackgroundService {
         if (!supabase.realtime.isConnected) {
           debugPrint("[BG_SERVICE_WATCHDOG] Realtime desconectado en segundo plano. Restaurando...");
           await setupSubscriptions();
-        } else {
-          // Heartbeat ligero para mantener el túnel WebSocket activo en segundo plano
-          try {
-            cmdChan?.sendBroadcastMessage(event: 'HEARTBEAT', payload: {'ts': DateTime.now().millisecondsSinceEpoch});
-          } catch (_) {}
         }
       }
     });

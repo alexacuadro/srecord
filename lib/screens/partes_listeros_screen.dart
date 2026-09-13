@@ -133,17 +133,12 @@ class _PartesListerosScreenState extends State<PartesListerosScreen> {
     try {
       final bancoId = await Alex().getActiveBancoId() ?? "UNKNOWN";
       var listeros = await _db.getListeros(bancoId: bancoId);
-      
-      // FALLBACK listeros
-      if (listeros.isEmpty) listeros = await _db.getListeros(bancoId: "UNKNOWN");
 
       final Map<String, double> tempSaldos = {};
       final Map<String, Map<String, dynamic>> tempPartes = {};
 
       if (listeros.isNotEmpty) {
         var partesHoy = await _db.getPartesByFechaSeccion(_activeFecha, _activeSeccion, bancoId: bancoId, loteria: _activeLoteria);
-        // FALLBACK partes
-        if (partesHoy.isEmpty) partesHoy = await _db.getPartesByFechaSeccion(_activeFecha, _activeSeccion, bancoId: "UNKNOWN", loteria: _activeLoteria);
         
         for (var p in partesHoy) {
           tempPartes[p['listero_pin']] = p;
@@ -151,8 +146,6 @@ class _PartesListerosScreenState extends State<PartesListerosScreen> {
 
         for (var l in listeros) {
           double saldo = await _db.getLastSaldoFinal(l['pin'], bancoId: bancoId, loteria: _activeLoteria);
-          // FALLBACK saldo
-          if (saldo == 0) saldo = await _db.getLastSaldoFinal(l['pin'], bancoId: "UNKNOWN", loteria: _activeLoteria);
           tempSaldos[l['pin']] = saldo;
         }
       }
@@ -463,10 +456,12 @@ class _PartesListerosScreenState extends State<PartesListerosScreen> {
   Future<void> _selectFecha() async {
     final openData = RecaudacionService.getOpenSeccionAndFecha(loteria: _activeLoteria);
     DateTime maxDate = DateTime.parse(openData["fecha"]!);
+    DateTime initDate = DateTime.tryParse(_activeFecha) ?? DateTime.now();
+    if (initDate.isAfter(maxDate)) initDate = maxDate;
 
     DateTime? picked = await showDatePicker(
       context: context, 
-      initialDate: DateTime.parse(_activeFecha), 
+      initialDate: initDate, 
       firstDate: DateTime(2024), 
       lastDate: maxDate
     );

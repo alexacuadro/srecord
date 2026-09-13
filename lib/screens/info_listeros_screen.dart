@@ -16,7 +16,6 @@ class _InfoListerosScreenState extends State<InfoListerosScreen> {
   List<Map<String, dynamic>> _notificaciones = [];
   List<Map<String, dynamic>> _listeros = [];
   String? _selectedListeroPin; // null significa "TODOS"
-  bool _esOficial = false;
   bool _isLoading = true;
 
   @override

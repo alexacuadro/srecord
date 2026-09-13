@@ -144,19 +144,24 @@ class _ComunicadosScreenState extends State<ComunicadosScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text("EMITIDO POR:", style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.grey)),
-                                Text("GERENCIA DEL BANCO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.blue.shade800)),
-                              ],
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text("EMITIDO POR:", style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.grey)),
+                                  Text("GERENCIA DEL BANCO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.blue.shade800), overflow: TextOverflow.ellipsis),
+                                ],
+                              ),
                             ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                const Text("FECHA DE EMISIÓN:", style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.grey)),
-                                Text(widget.comunicado['fecha'] ?? "", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black54)),
-                              ],
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  const Text("FECHA DE EMISIÓN:", style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.grey)),
+                                  Text(widget.comunicado['fecha'] ?? "", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black54), overflow: TextOverflow.ellipsis),
+                                ],
+                              ),
                             ),
                           ],
                         ),

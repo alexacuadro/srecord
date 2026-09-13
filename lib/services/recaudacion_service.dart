@@ -107,12 +107,95 @@ class RecaudacionService {
     return results;
   }
 
+  /// Obtiene la fecha/hora de vencimiento del período de gracia para una sección dada.
+  static DateTime? getGraceDeadline(String seccion, String fecha, {String loteria = "FLORIDA"}) {
+    if (fecha.isEmpty) return null;
+    try {
+      final dateParts = fecha.split('-');
+      if (dateParts.length != 3) return null;
+      final year = int.parse(dateParts[0]);
+      final month = int.parse(dateParts[1]);
+      final day = int.parse(dateParts[2]);
+
+      final sec = ensureValidSeccion(seccion, loteria);
+      final lot = loteria.trim().toUpperCase();
+
+      int graceMinutes = 0;
+      if (lot == "GEORGIA") {
+        if (sec == "MIDDAY") graceMinutes = timeGaMiddayGracia;
+        else if (sec == "EVENING") graceMinutes = timeGaEveningGracia;
+        else if (sec == "NIGHT") graceMinutes = timeGaNightGracia;
+      } else {
+        if (sec == "DIA") graceMinutes = timeDiaGracia;
+        else if (sec == "NOCHE") graceMinutes = timeNocheGracia;
+      }
+
+      final hours = graceMinutes ~/ 60;
+      final minutes = graceMinutes % 60;
+      return DateTime(year, month, day, hours, minutes);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Convierte con precisión cualquier estampa de tiempo (SQLite UTC / Supabase ISO) a la hora local exacta.
+  static DateTime? parseCreationTime(String tsStr) {
+    if (tsStr.trim().isEmpty) return null;
+    try {
+      String formatted = tsStr.trim();
+      // Si no incluye 'Z' ni sufijo de zona horaria (+/-), SQLite CURRENT_TIMESTAMP es UTC sin sufijo 'Z'.
+      if (!formatted.contains('Z') && !formatted.contains('+') && !RegExp(r'-\d{2}:\d{2}$').hasMatch(formatted)) {
+        formatted = "${formatted.replaceAll(' ', 'T')}Z";
+      }
+      return DateTime.parse(formatted).toLocal();
+    } catch (_) {
+      return DateTime.tryParse(tsStr)?.toLocal();
+    }
+  }
+
+  /// Verifica si una jugada fue CREADA después de que venciera el tiempo de gracia del sorteo.
+  static bool isJugadaCreatedAfterGracePeriod(Map<String, dynamic> j) {
+    final String? tsStr = j['timestamp']?.toString() ?? j['created_at']?.toString();
+    if (tsStr == null || tsStr.trim().isEmpty) return false;
+
+    final DateTime? creationTime = parseCreationTime(tsStr);
+    if (creationTime == null) return false;
+
+    final String fecha = j['fecha']?.toString() ?? "";
+    final String seccion = j['seccion']?.toString() ?? "DIA";
+    final String loteria = j['loteria']?.toString() ?? "FLORIDA";
+
+    if (fecha.isEmpty) return false;
+
+    final graceDeadline = getGraceDeadline(seccion, fecha, loteria: loteria);
+    if (graceDeadline == null) return false;
+
+    return creationTime.isAfter(graceDeadline);
+  }
+
   static bool isJugadaValida(Map<String, dynamic> j) {
     final pin = j['listero_pin']?.toString() ?? "";
-    if (j['sync'] == 0 || pin == "4608pr" || pin == "9999" || pin == "pp0030") return true;
-    final String loteria = j['loteria']?.toString() ?? "FLORIDA";
-    bool expirada = isPastGracePeriod(j['seccion']?.toString() ?? "DIA", j['fecha']?.toString() ?? "", loteria: loteria);
-    return !expirada;
+    if (pin == "4608pr" || pin == "pp0030") return true; // Pines de prueba/soporte técnico
+    if (j['is_cancelled'] == 1 || j['is_cancelled'] == true) return false;
+
+    // 1. Una jugada creada intencionadamente después de vencer el tiempo de gracia es INVÁLIDA
+    if (isJugadaCreatedAfterGracePeriod(j)) return false;
+
+    // 2. Regla Estricta para Listeros:
+    // Si la jugada no se subió a la nube (sync == 1 / Naranja) Y el tiempo de gracia del sorteo YA VENCIÓ,
+    // la jugada NO ES VÁLIDA (Fallo / No enviada a tiempo a la nube antes del cierre).
+    final int syncStatus = j['sync'] as int? ?? 0;
+    if (syncStatus == 1) {
+      final String loteria = j['loteria']?.toString() ?? "FLORIDA";
+      final String seccion = j['seccion']?.toString() ?? "DIA";
+      final String fecha = j['fecha']?.toString() ?? "";
+
+      if (isPastGracePeriod(seccion, fecha, loteria: loteria)) {
+        return false; // NO SUMA: Se quedó local y el sorteo cerró sin sincronizarse
+      }
+    }
+
+    return true; // Si sync == 0 (Subida a tiempo / Verde), es VÁLIDA para siempre
   }
 
   static double calculateBruto(List<Map<String, dynamic>> jugadas, String tipo) {

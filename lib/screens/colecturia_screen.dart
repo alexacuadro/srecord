@@ -149,25 +149,13 @@ class _ColecturiaScreenState extends State<ColecturiaScreen> {
     try {
       var listeros = await _db.getListeros(bancoId: bancoId);
       debugPrint("[COLECTURIA] Listeros encontrados para $bancoId: ${listeros.length}");
-      
-      // FALLBACK: Si no hay listeros para este bancoId, buscar globales (Migración)
-      if (listeros.isEmpty) {
-        debugPrint("[COLECTURIA DEBUG] Banco $bancoId sin listeros. Buscando globales...");
-        listeros = await _db.getListeros(bancoId: "UNKNOWN");
-      }
 
       final Map<String, String>? tiro = await _db.getResultado(_activeFecha, _activeSeccion, bancoId: bancoId, loteria: _activeLoteria);
       _tiroActual = tiro;
 
       var allJugadas = await _db.getJugadasCompletas("", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria);
-      
-      // FALLBACK: Si no hay jugadas para este bancoId, buscar globales (datos antiguos)
-      if (allJugadas.isEmpty) {
-        debugPrint("[COLECTURIA] No hay jugadas para $bancoId. Buscando datos globales...");
-        allJugadas = await _db.getJugadasCompletas("", seccion: _activeSeccion, fecha: _activeFecha, loteria: _activeLoteria);
-      }
 
-      debugPrint("[COLECTURIA] Jugadas finales a mostrar: ${allJugadas.length}");
+      debugPrint("[COLECTURIA] Jugadas finales a mostrar para fecha $_activeFecha: ${allJugadas.length}");
 
       final Map<String, List<Map<String, dynamic>>> jugadasPorListero = {};
       final Set<String> processedUuuids = {};
@@ -259,10 +247,11 @@ class _ColecturiaScreenState extends State<ColecturiaScreen> {
   }
 
   bool _isOnline(String? lastSeen) {
-    if (lastSeen == null) return false;
+    if (lastSeen == null || lastSeen.isEmpty) return false;
     try {
       final dt = DateTime.parse(lastSeen);
-      return DateTime.now().difference(dt).inMinutes < 5;
+      final diffInMinutes = DateTime.now().toUtc().difference(dt.toUtc()).inMinutes.abs();
+      return diffInMinutes < 3;
     } catch (_) { return false; }
   }
 
@@ -817,31 +806,6 @@ class _ColecturiaScreenState extends State<ColecturiaScreen> {
     );
   }
 
-  Widget _seccionChip(String s, IconData icon, Color color) {
-    bool active = _activeSeccion == s;
-    String displayLabel = s;
-    if (_activeLoteria == "GEORGIA") {
-      if (s == "MIDDAY") displayLabel = "MAÑANA";
-      if (s == "EVENING") displayLabel = "TARDE";
-      if (s == "NIGHT") displayLabel = "NOCHE";
-    }
-    return GestureDetector(
-      onTap: () {
-         _switchSeccion(s);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: active ? color : Colors.white, 
-          borderRadius: BorderRadius.circular(20), 
-          border: Border.all(color: active ? color : Colors.grey.shade300),
-        ),
-        child: Row(children: [Icon(icon, size: 14, color: active ? Colors.white : Colors.grey), const SizedBox(width: 8), Text(displayLabel, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: active ? Colors.white : Colors.grey))]),
-      ),
-    );
-  }
-
   void _switchSeccion(String s) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString("sync_seccion", s);
@@ -854,7 +818,17 @@ class _ColecturiaScreenState extends State<ColecturiaScreen> {
   }
 
   Future<void> _selectFecha() async {
-    DateTime? picked = await showDatePicker(context: context, initialDate: DateTime.parse(_activeFecha), firstDate: DateTime(2024), lastDate: DateTime(2101));
+    final openData = RecaudacionService.getOpenSeccionAndFecha(loteria: _activeLoteria);
+    DateTime maxDate = DateTime.parse(openData["fecha"]!);
+    DateTime initDate = DateTime.tryParse(_activeFecha) ?? DateTime.now();
+    if (initDate.isAfter(maxDate)) initDate = maxDate;
+
+    DateTime? picked = await showDatePicker(
+      context: context, 
+      initialDate: initDate, 
+      firstDate: DateTime(2024), 
+      lastDate: maxDate
+    );
     if (picked != null) {
       final newFecha = picked.toString().substring(0, 10);
       final prefs = await SharedPreferences.getInstance();
@@ -1335,10 +1309,9 @@ class _LiveVisorColumnState extends State<LiveVisorColumn> {
   }
 
   Color _getSyncStatusColor(Map<String, dynamic> j) {
-    if (j['sync'] == 0) return Colors.green.shade700; // EN NUBE
-    final String lot = j['loteria']?.toString() ?? widget.activeLoteria;
-    if (RecaudacionService.isPastGracePeriod(j['seccion'], j['fecha'], loteria: lot)) return Colors.red.shade700; // FALLO
-    return Colors.orange.shade800; // LOCAL
+    if (!RecaudacionService.isJugadaValida(j)) return Colors.red.shade700; // NO VÁLIDA / FALLO / NO ENVIADA A TIEMPO
+    if (j['sync'] == 0) return Colors.green.shade700; // EN NUBE / SUBIDA A TIEMPO
+    return Colors.orange.shade800; // LOCAL / PENDIENTE MIENTRAS EL SORTEO SIGA ABIERTO
   }
 
   Widget _jugadaVerticalDisplay(String nums, String money, TextStyle baseStyle) {

@@ -346,13 +346,23 @@ class _NumerosMasJugadosScreenState extends State<NumerosMasJugadosScreen> with 
     ),
   );
 
-  Widget _row(String l, double f, double c, Color col) => Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(l, style: TextStyle(color: col, fontSize: 8, fontWeight: FontWeight.w900)), Text("(${f.toStringAsFixed(f % 1 == 0 ? 0 : 2)})(${c.toStringAsFixed(c % 1 == 0 ? 0 : 2)})", style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold, fontSize: 11))]);
-  Widget _simpleRow(String l, double v, Color col) => Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(l, style: TextStyle(color: col, fontSize: 8, fontWeight: FontWeight.w900)), Text("\$${v.toStringAsFixed(v % 1 == 0 ? 0 : 2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11))]);
+  Widget _row(String l, double f, double c, Color col) => Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(l, style: TextStyle(color: col, fontSize: 8, fontWeight: FontWeight.w900)), Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text("(${f.toStringAsFixed(f % 1 == 0 ? 0 : 2)})(${c.toStringAsFixed(c % 1 == 0 ? 0 : 2)})", style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold, fontSize: 11))))]);
+  Widget _simpleRow(String l, double v, Color col) => Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(l, style: TextStyle(color: col, fontSize: 8, fontWeight: FontWeight.w900)), Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text("\$${v.toStringAsFixed(v % 1 == 0 ? 0 : 2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11))))]);
   Widget _badge(String n) => Container(width: 50, height: 50, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.blue.shade800, width: 2)), child: Center(child: Text(n, style: TextStyle(fontWeight: FontWeight.w900, fontSize: n.length > 3 ? 10 : 16, color: Colors.black87))));
   Widget _emptyState() => Center(child: Text("SIN REGISTROS", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade100)));
 
   Future<void> _selectFecha() async {
-    DateTime? picked = await showDatePicker(context: context, initialDate: DateTime.parse(_activeFecha), firstDate: DateTime(2024), lastDate: DateTime(2101));
+    final openData = RecaudacionService.getOpenSeccionAndFecha(loteria: _activeLoteria);
+    DateTime maxDate = DateTime.parse(openData["fecha"]!);
+    DateTime initDate = DateTime.tryParse(_activeFecha) ?? DateTime.now();
+    if (initDate.isAfter(maxDate)) initDate = maxDate;
+
+    DateTime? picked = await showDatePicker(
+      context: context, 
+      initialDate: initDate, 
+      firstDate: DateTime(2024), 
+      lastDate: maxDate
+    );
     if (picked != null) {
       final newFecha = picked.toString().substring(0, 10);
       final prefs = await SharedPreferences.getInstance();

@@ -326,7 +326,7 @@ class _MisPartesScreenState extends State<MisPartesScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.bold, fontSize: 12)),
+        Expanded(child: Text(label, style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis)),
         const SizedBox(width: 10),
         Flexible(
           child: FittedBox(

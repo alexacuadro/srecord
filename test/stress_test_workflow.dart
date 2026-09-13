@@ -79,15 +79,11 @@ void main() {
     double totalPremiosListaGeneral = 0.0;
 
     for (int l = 1; l <= totalListeros; l++) {
-      double runningSaldo = 0.0;
-
-      for (var sorteo in sorteos) {
+      for (var _ in sorteos) {
         // Cálculo rápido en bloque de 2000 jugadas
         double limpioLista = 1500.0 * 0.85; // 85% después de comisión
         double premiosLista = 200.0;
-        double balanceSeccion = limpioLista - premiosLista;
 
-        runningSaldo += balanceSeccion;
         totalLimpioListaGeneral += limpioLista;
         totalPremiosListaGeneral += premiosLista;
       }

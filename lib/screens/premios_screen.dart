@@ -423,14 +423,24 @@ class _PremiosScreenState extends State<PremiosScreen> with SingleTickerProvider
   }
 
   Future<void> _selectFecha() async {
-    DateTime? picked = await showDatePicker(context: context, initialDate: DateTime.parse(_activeFecha), firstDate: DateTime(2024), lastDate: DateTime(2101));
+    final openData = RecaudacionService.getOpenSeccionAndFecha(loteria: _activeLoteria);
+    DateTime maxDate = DateTime.parse(openData["fecha"]!);
+    DateTime initDate = DateTime.tryParse(_activeFecha) ?? DateTime.now();
+    if (initDate.isAfter(maxDate)) initDate = maxDate;
+
+    DateTime? picked = await showDatePicker(
+      context: context, 
+      initialDate: initDate, 
+      firstDate: DateTime(2024), 
+      lastDate: maxDate
+    );
     if (picked != null) {
       final newFecha = picked.toString().substring(0, 10);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("sync_fecha", newFecha);
       setState(() { _activeFecha = newFecha; _isLoading = true; });
       await _calculatePremios();
-      setState(() { _isLoading = false; });
+      if (mounted) setState(() { _isLoading = false; });
     }
   }
 

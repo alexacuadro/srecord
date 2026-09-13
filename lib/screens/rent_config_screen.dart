@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:srecord/services/rent_service.dart';
 
 class RentConfigScreen extends StatefulWidget {
@@ -22,7 +21,6 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
   double _monto = 100.0;
   RentFrequency _frecuencia = RentFrequency.quincenalDomingo;
   DateTime _fechaInicio = DateTime.now();
-  String? _ultimoPago;
   List<Map<String, dynamic>> _schedule = [];
   bool _isLoading = true;
 
@@ -40,7 +38,6 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
       final m = await _rentService.getMonto(bancoId: widget.bancoId);
       final f = await _rentService.getFrecuencia(bancoId: widget.bancoId);
       final fi = await _rentService.getFechaInicio(bancoId: widget.bancoId);
-      final up = await _rentService.getUltimoPagoFecha(bancoId: widget.bancoId);
       final sch = await _rentService.getAnnualSchedule(bancoId: widget.bancoId);
 
       if (mounted) {
@@ -50,7 +47,6 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
           _montoController.text = m.round().toString();
           _frecuencia = f;
           _fechaInicio = fi;
-          _ultimoPago = up;
           _schedule = sch;
         });
       }
@@ -288,26 +284,29 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
                     ),
                   ),
                 ),
-                DropdownButton<RentFrequency>(
-                  value: _frecuencia,
-                  dropdownColor: widget.isProgramadorMode ? const Color(0xFF0F172A) : Colors.white,
-                  style: TextStyle(
-                    color: widget.isProgramadorMode ? const Color(0xFF38BDF8) : Colors.black,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                  onChanged: widget.isProgramadorMode
-                      ? (val) async {
-                          if (val != null) {
-                            await _rentService.setFrecuencia(val, bancoId: widget.bancoId);
-                            _loadConfig();
+                Flexible(
+                  child: DropdownButton<RentFrequency>(
+                    value: _frecuencia,
+                    dropdownColor: widget.isProgramadorMode ? const Color(0xFF0F172A) : Colors.white,
+                    style: TextStyle(
+                      color: widget.isProgramadorMode ? const Color(0xFF38BDF8) : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                    isExpanded: true,
+                    onChanged: widget.isProgramadorMode
+                        ? (val) async {
+                            if (val != null) {
+                              await _rentService.setFrecuencia(val, bancoId: widget.bancoId);
+                              _loadConfig();
+                            }
                           }
-                        }
-                      : null,
-                  items: const [
-                    DropdownMenuItem(value: RentFrequency.quincenalDomingo, child: Text("Un Domingo sí, otro no (Quincenal)")),
-                    DropdownMenuItem(value: RentFrequency.semanalDomingo, child: Text("Todos los Domingos (Semanal)")),
-                  ],
+                        : null,
+                    items: const [
+                      DropdownMenuItem(value: RentFrequency.quincenalDomingo, child: Text("Un Domingo sí, otro no (Quincenal)", overflow: TextOverflow.ellipsis)),
+                      DropdownMenuItem(value: RentFrequency.semanalDomingo, child: Text("Todos los Domingos (Semanal)", overflow: TextOverflow.ellipsis)),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -317,29 +316,33 @@ class _RentConfigScreenState extends State<RentConfigScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Primer Domingo Pactado:",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: widget.isProgramadorMode ? Colors.white70 : Colors.black87,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Primer Domingo Pactado:",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: widget.isProgramadorMode ? Colors.white70 : Colors.black87,
+                        ),
                       ),
-                    ),
-                    Text(
-                      RentService.formatSpanishDate(_fechaInicio),
-                      style: const TextStyle(fontSize: 11, color: Colors.blueGrey),
-                    ),
-                  ],
+                      Text(
+                        RentService.formatSpanishDate(_fechaInicio),
+                        style: const TextStyle(fontSize: 11, color: Colors.blueGrey),
+                      ),
+                    ],
+                  ),
                 ),
-                if (widget.isProgramadorMode)
+                if (widget.isProgramadorMode) ...[
+                  const SizedBox(width: 8),
                   OutlinedButton.icon(
                     onPressed: _selectFechaInicio,
                     icon: const Icon(Icons.calendar_month, size: 18),
                     label: const Text("CAMBIAR"),
                   ),
+                ],
               ],
             ),
           ],

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:srecord/services/alex_api.dart';
 
 class LoteriaVideosScreen extends StatefulWidget {
   const LoteriaVideosScreen({super.key});
@@ -15,6 +16,7 @@ class _LoteriaVideosScreenState extends State<LoteriaVideosScreen> {
   WebViewController? _controller;
   bool _isLoading = true;
   String _selectedCategory = "TODOS"; // "TODOS", "GEORGIA", "FLORIDA"
+  String _enabledLoterias = "AMBAS";
   final bool _isSupported = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   String _getDynamicUrl(String category) {
@@ -32,7 +34,23 @@ class _LoteriaVideosScreenState extends State<LoteriaVideosScreen> {
   @override
   void initState() {
     super.initState();
-    _initWebViewController(_getDynamicUrl(_selectedCategory));
+    _loadPermissions();
+  }
+
+  Future<void> _loadPermissions() async {
+    final bancoId = await Alex().getActiveBancoId();
+    final allowed = await Alex().getBankLoterias(bancoId);
+    if (mounted) {
+      setState(() {
+        _enabledLoterias = allowed;
+        if (allowed == "FLORIDA") {
+          _selectedCategory = "FLORIDA";
+        } else if (allowed == "GEORGIA") {
+          _selectedCategory = "GEORGIA";
+        }
+      });
+      _initWebViewController(_getDynamicUrl(_selectedCategory));
+    }
   }
 
   void _initWebViewController(String url) {
@@ -108,9 +126,9 @@ class _LoteriaVideosScreenState extends State<LoteriaVideosScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _filterChip("MÁS RECIENTES", "TODOS"),
-                _filterChip("GEORGIA", "GEORGIA"),
-                _filterChip("FLORIDA", "FLORIDA"),
+                if (_enabledLoterias == "AMBAS") _filterChip("MÁS RECIENTES", "TODOS"),
+                if (_enabledLoterias == "AMBAS" || _enabledLoterias == "GEORGIA") _filterChip("GEORGIA", "GEORGIA"),
+                if (_enabledLoterias == "AMBAS" || _enabledLoterias == "FLORIDA") _filterChip("FLORIDA", "FLORIDA"),
               ],
             ),
           ),

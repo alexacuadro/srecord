@@ -23,6 +23,8 @@ class _CrearListasScreenState extends State<CrearListasScreen> {
     super.initState();
     _loadData();
     _db.onSyncUpdate = _syncUpdateListener;
+    // Sincronizar automáticamente listas de la nube al abrir la vista
+    Alex().syncDataToCloud(isDeepSync: true);
   }
 
   void _syncUpdateListener(int id) {
@@ -94,6 +96,8 @@ class _CrearListasScreenState extends State<CrearListasScreen> {
 
     if (!mounted) return;
 
+    bool isSubmitting = false;
+
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -141,16 +145,45 @@ class _CrearListasScreenState extends State<CrearListasScreen> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: Text("CANCELAR", style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold))),
+            TextButton(onPressed: isSubmitting ? null : () => Navigator.pop(context), child: Text("CANCELAR", style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold))),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade800, foregroundColor: Colors.white),
-              onPressed: () async {
-                if (nameController.text.trim().isNotEmpty && pinController.text.trim().length == 4) {
+              onPressed: isSubmitting ? null : () async {
+                final nameEntered = nameController.text.trim();
+                final pinEntered = pinController.text.trim();
+                if (nameEntered.isNotEmpty && pinEntered.length == 4) {
+                  setDialogState(() { isSubmitting = true; });
                   try {
+                    // VERIFICAR PIN EN TODOS LOS BANCOS (LOCAL Y NUBE)
+                    final String? pinError = await Alex().checkPinAvailability(pinEntered, currentBancoId: bancoId);
+                    if (pinError != null) {
+                      setDialogState(() { isSubmitting = false; });
+                      if (context.mounted) {
+                        showDialog(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                            title: Row(
+                              children: [
+                                Icon(Icons.warning_amber_rounded, color: Colors.red.shade800),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text("PIN NO DISPONIBLE", style: TextStyle(fontWeight: FontWeight.w900, color: Colors.red.shade900, fontSize: 16))),
+                              ],
+                            ),
+                            content: Text(pinError),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("ENTENDIDO")),
+                            ],
+                          ),
+                        );
+                      }
+                      return;
+                    }
+
                     final listero = {
                       "banco_id": bancoId, 
-                      "nombre": nameController.text.trim().toUpperCase(), 
-                      "pin": pinController.text.trim(), 
+                      "nombre": nameEntered.toUpperCase(), 
+                      "pin": pinEntered, 
                       "plan": selectedPlan, 
                       "loterias": selectedLoterias,
                       "bloqueado": 0, 
@@ -158,10 +191,11 @@ class _CrearListasScreenState extends State<CrearListasScreen> {
                     };
                     await _saveListero(listero);
                     final prefs = await SharedPreferences.getInstance();
-                    await prefs.remove("personal_topes_${bancoId}_${pinController.text.trim()}");
+                    await prefs.remove("personal_topes_${bancoId}_$pinEntered");
                     await _loadData();
                     if (context.mounted) Navigator.pop(context);
                   } catch (e) {
+                    setDialogState(() { isSubmitting = false; });
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text("Error al crear lista: $e"), backgroundColor: Colors.red)
@@ -174,7 +208,9 @@ class _CrearListasScreenState extends State<CrearListasScreen> {
                   );
                 }
               },
-              child: const Text("CREAR LISTA", style: TextStyle(fontWeight: FontWeight.bold)),
+              child: isSubmitting 
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Text("CREAR LISTA", style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -312,8 +348,8 @@ class _CrearListasScreenState extends State<CrearListasScreen> {
         itemCount: _listeros.length,
         itemBuilder: (context, index) {
           final l = _listeros[index];
-          bool isBlocked = (l["bloqueado"] == true || l["bloqueado"] == 1);
-          bool isLinked = (l["vinculado"] == true || l["vinculado"] == 1);
+          bool isBlocked = (l["bloqueado"] == true || l["bloqueado"] == 1 || l["bloqueado"] == "1" || l["bloqueado"] == "true");
+          bool isLinked = (l["vinculado"] == true || l["vinculado"] == 1 || l["vinculado"] == "1" || l["vinculado"] == "true" || (l["device_id"] != null && l["device_id"].toString().trim().isNotEmpty));
           String listeroLoterias = l['loterias']?.toString() ?? "AMBAS";
           return Container(
             margin: const EdgeInsets.only(bottom: 12),

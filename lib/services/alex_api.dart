@@ -46,24 +46,36 @@ class Alex {
       }
     });
 
-    // Iniciar auditoría de seguridad silenciosa
+    // Iniciar auditoría de seguridad silenciosa y canal global de actualizaciones
     _performSecurityAudit();
     SecureTimeService().sync();
+    _initSystemChannels();
 
     // Escuchar actualizaciones detectadas por el servicio de fondo
     BackgroundService.on('onUpdateDetected').listen((data) {
       if (data != null) {
         debugPrint("[ALEX_REMOTE] ¡ACTUALIZACIÓN CRÍTICA DETECTADA! Forzando descarga...");
-        // Mapear datos inmediatamente y disparar
-        updateRequired.value = {
-          'current': '...', // Se llenará en checkAppUpdate
-          'required': data['version_name'],
-          'url': data['apk_url'],
-          'message': data['release_notes'] ?? "Actualización obligatoria de seguridad."
-        };
         checkAppUpdate(force: true);
       }
     });
+  }
+
+  RealtimeChannel? _systemChannel;
+
+  void _initSystemChannels() async {
+    try {
+      await _systemChannel?.unsubscribe();
+      _systemChannel = _supabase.channel('system_updates');
+      _systemChannel!.onBroadcast(
+        event: 'NEW_APP_UPDATE',
+        callback: (payload) async {
+          debugPrint("[ALEX_REALTIME] ¡ANUNCIO DE NUEVA VERSIÓN RECIBIDO VÍA WEBSOCKET!");
+          await checkAppUpdate(force: true);
+        },
+      ).subscribe();
+    } catch (e) {
+      debugPrint("[ALEX_SYS_CHAN_ERR] $e");
+    }
   }
 
   Future<void> _performSecurityAudit() async {
@@ -127,6 +139,7 @@ class Alex {
   
   // MIEMBROS RESTAURADOS
   final ValueNotifier<bool> isUserVerified = ValueNotifier<bool>(true);
+  final ValueNotifier<bool> isListeroBlocked = ValueNotifier<bool>(false);
   final ValueNotifier<Map<String, dynamic>?> updateRequired = ValueNotifier<Map<String, dynamic>?>(null);
   final ValueNotifier<double> uploadProgress = ValueNotifier<double>(0.0);
   final async.StreamController<String> _securityController = async.StreamController<String>.broadcast();
@@ -147,6 +160,9 @@ class Alex {
     await _commandChannel?.unsubscribe();
     await _dataChannel?.unsubscribe();
 
+    // Verificar estado inicial de bloqueo para el listero activo
+    checkListeroBlockStatus();
+
     // 1. Canal de Comandos (Mensajes rápidos entre dispositivos)
     _commandChannel = _supabase.channel('commands:$bancoId');
     _commandChannel!.onBroadcast(event: 'PULSE_CHECK', callback: (payload) async {
@@ -156,10 +172,71 @@ class Alex {
        final String? targetPin = payload['target_pin'];
        final String myPin = await getActiveListeroPin();
 
-       // Si el pulso es para mí o para todos, sincronizar
+       // Si el pulso es para mí o para todos, sincronizar (marcando fromRemotePulse: true para evitar rebote infinito)
        if (targetPin == null || targetPin == "" || targetPin == myPin) {
          debugPrint("[ALEX_REMOTE] Pulso de sincronización recibido. Ejecutando Espejo...");
-         await syncDataToCloud(isDeepSync: payload['deep'] ?? true);
+         await syncDataToCloud(isDeepSync: payload['deep'] ?? true, fromRemotePulse: true);
+         await checkListeroBlockStatus();
+         _db.notifySyncUpdate(-999);
+       }
+    }).onBroadcast(event: 'LISTERO_BLOCK_TOGGLE', callback: (payload) async {
+       final String pin = (payload['pin'] ?? "").toString().trim();
+       final bool blocked = (payload['blocked'] == true || payload['blocked'] == 1);
+       final String myPin = await getActiveListeroPin();
+       if (pin == myPin) {
+         debugPrint("[ALEX_REALTIME] Bloqueo en tiempo real recibido para mi lista: $blocked");
+         isListeroBlocked.value = blocked;
+         final bId = await getActiveBancoId();
+         if (bId != null) {
+           final local = await _db.getListeroByPin(pin, bId);
+           if (local != null) {
+             final updated = Map<String, dynamic>.from(local);
+             updated['bloqueado'] = blocked ? 1 : 0;
+             await _db.upsertListero(updated);
+           }
+         }
+         _db.notifySyncUpdate(-999);
+       }
+    }).onBroadcast(event: 'LISTERO_UNLINK', callback: (payload) async {
+       final String pin = (payload['pin'] ?? "").toString().trim();
+       final String myPin = (await getActiveListeroPin()).trim();
+       final String prefsRole = (await SharedPreferences.getInstance()).getString("user_role") ?? "";
+       if (prefsRole == "LISTERO" && pin == myPin) {
+         debugPrint("[ALEX_REALTIME] Desvinculación en tiempo real recibida para mi lista ($pin). Cerrando sesión...");
+         await logout(fullReset: true);
+         _liveBetsController.add({
+           'type': 'LISTERO_UNLINKED',
+           'message': '⚠️ SU LISTA HA SIDO DESVINCULADA POR EL BANCO.'
+         });
+       } else {
+         final bId = await getActiveBancoId();
+         if (bId != null) {
+           final local = await _db.getListeroByPin(pin, bId);
+           if (local != null) {
+             final updated = Map<String, dynamic>.from(local);
+             updated['vinculado'] = 0;
+             updated['device_id'] = null;
+             await _db.upsertListero(updated);
+           }
+         }
+         _db.notifySyncUpdate(-999);
+       }
+    }).onBroadcast(event: 'LISTERO_DELETE', callback: (payload) async {
+       final String pin = (payload['pin'] ?? "").toString().trim();
+       final String myPin = (await getActiveListeroPin()).trim();
+       final String prefsRole = (await SharedPreferences.getInstance()).getString("user_role") ?? "";
+       if (prefsRole == "LISTERO" && pin == myPin) {
+         debugPrint("[ALEX_REALTIME] Eliminación en tiempo real recibida para mi lista ($pin). Cerrando sesión...");
+         await logout(fullReset: true);
+         _liveBetsController.add({
+           'type': 'LISTERO_UNLINKED',
+           'message': '⚠️ SU LISTA HA SIDO ELIMINADA POR EL BANCO.'
+         });
+       } else {
+         final bId = await getActiveBancoId();
+         if (bId != null) {
+           await _db.deleteListero(pin, bId, sync: 0);
+         }
          _db.notifySyncUpdate(-999);
        }
     }).onBroadcast(event: 'TYPING_STATUS', callback: (payload) {
@@ -293,11 +370,41 @@ class Alex {
       await _db.upsertPlan(planRow['nombre'] ?? '', planRow['config'] ?? {}, bancoId: bancoId, loteria: planRow['loteria']?.toString() ?? 'FLORIDA', sync: 0);
       _db.notifySyncUpdate(-999);
     } else if (table == 'listeros') {
+      final String pin = (record['pin'] ?? "").toString().trim();
+      final String myPin = (await getActiveListeroPin()).trim();
+      final String prefsRole = (await SharedPreferences.getInstance()).getString("user_role") ?? "";
+
       if (payload.eventType == PostgresChangeEvent.delete) {
-        await _db.deleteListero(record['pin'], bancoId, sync: 0);
+        if (prefsRole == "LISTERO" && pin == myPin) {
+          debugPrint("[ALEX_REALTIME] Borrado de lista detectado en Postgres ($pin).");
+          await logout(fullReset: true);
+          _liveBetsController.add({
+            'type': 'LISTERO_UNLINKED',
+            'message': '⚠️ SU LISTA HA SIDO ELIMINADA POR EL BANCO.'
+          });
+          return;
+        }
+        await _db.deleteListero(pin, bancoId, sync: 0);
         _db.notifySyncUpdate(-999);
         return;
       }
+
+      if (prefsRole == "LISTERO" && pin == myPin) {
+        final bool isLinked = (record['vinculado'] == 1 || record['vinculado'] == true);
+        final String? devId = record['device_id'];
+        final String myDevId = await _getDeviceId();
+
+        if (!isLinked || (devId != null && devId.isNotEmpty && devId != myDevId)) {
+          debugPrint("[ALEX_REALTIME] Desvinculación detectada en Postgres para mi lista ($pin).");
+          await logout(fullReset: true);
+          _liveBetsController.add({
+            'type': 'LISTERO_UNLINKED',
+            'message': '⚠️ SU LISTA HA SIDO DESVINCULADA POR EL BANCO.'
+          });
+          return;
+        }
+      }
+
       await _db.upsertListero({...record, 'sync': 0}); 
       _db.notifySyncUpdate(-999);
     } else if (table == 'limites') {
@@ -325,7 +432,28 @@ class Alex {
         payloadKey: "limit_${record['uuid'] ?? '${record['banco_id']}_$num'}",
       );
     } else if (table == 'bank_colors') {
-      await _db.setBankColor(bancoId, record['color_hex'], sync: 0);
+      if (record['color_hex'] != null) {
+        await _db.setBankColor(bancoId, record['color_hex'].toString(), sync: 0);
+      }
+      if (record['loterias'] != null) {
+        final String lot = record['loterias'].toString().trim().toUpperCase();
+        await _db.setBankLoterias(bancoId, lot, sync: 0);
+
+        final prefs = await SharedPreferences.getInstance();
+        if (lot == "FLORIDA") {
+          await prefs.setString("sync_loteria", "FLORIDA");
+          await prefs.setString("sync_seccion", "DIA");
+        } else if (lot == "GEORGIA") {
+          await prefs.setString("sync_loteria", "GEORGIA");
+          await prefs.setString("sync_seccion", "MIDDAY");
+        }
+
+        final keys = prefs.getKeys().where((k) => k.startsWith("cached_listero_loterias_${bancoId}_")).toList();
+        for (var k in keys) {
+          await prefs.remove(k);
+        }
+      }
+      TiroService().notifyNewTiro(null);
       _db.notifySyncUpdate(-999);
     } else if (table == 'notificaciones') {
       if (payload.eventType == PostgresChangeEvent.delete) {
@@ -599,7 +727,7 @@ class Alex {
   int _consecutiveErrors = 0;
   DateTime? _lastErrorTime;
 
-  Future<void> syncDataToCloud({bool isDeepSync = false, String? priorityTable}) async {
+  Future<void> syncDataToCloud({bool isDeepSync = false, String? priorityTable, bool fromRemotePulse = false}) async {
     if (_isSyncing) {
       _syncPending = true;
       if (isDeepSync) _deepSyncRequested = true;
@@ -630,11 +758,15 @@ class Alex {
       final String? bancoId = prefs.getString("active_banco_id") ?? prefs.getString("banco_id");
       final String? userRole = prefs.getString("user_role");
       
-      debugPrint("[ALEX_SYNC] Rol: $userRole | Banco: $bancoId | Deep: $currentDeep");
+      debugPrint("[ALEX_SYNC] Rol: $userRole | Banco: $bancoId | Deep: $currentDeep | RemotePulse: $fromRemotePulse");
 
       if (bancoId == null || bancoId == "UNKNOWN") {
         debugPrint("[ALEX_SYNC] Sincronización abortada: Banco desconocido.");
         return;
+      }
+
+      if (userRole == "LISTERO") {
+        await verifyActiveListeroStatus();
       }
 
       final String lastSync = prefs.getString("last_sync_timestamp_$bancoId") ?? "2000-01-01T00:00:00Z";
@@ -646,7 +778,7 @@ class Alex {
       await _processMirrorDeletions(bancoId);
       
       // 2. Subir mis datos locales creados a la nube PRIMERO (para que la nube reciba los tiros/datos nuevos)
-      bool pushedAnything = await _pushMirrorToCloud(bancoId, isDeepSync: currentDeep, priorityTable: currentPriority);
+      bool pushedAnything = await _pushMirrorToCloud(bancoId, isDeepSync: currentDeep, priorityTable: currentPriority, fromRemotePulse: fromRemotePulse);
       await _resyncAffectedSections(bancoId);
 
       // 3. Descargar datos y sincronizar con la nube SEGUNDO
@@ -662,8 +794,8 @@ class Alex {
       await prefs.setString("last_sync_timestamp_$bancoId", DateTime.now().toUtc().toIso8601String());
       _db.notifySyncUpdate(-999);
 
-      // Si soy BANCO y acabo de subir algo, avisar a mis otros dispositivos (Omnipresencia)
-      if (userRole == "BANCO" && pushedAnything) {
+      // Si soy BANCO y acabo de subir algo, avisar a mis otros dispositivos (Solo si no proviene de un pulso remoto para evitar efecto eco)
+      if (!fromRemotePulse && userRole == "BANCO" && pushedAnything) {
         broadcastSyncPulse(isDeep: true);
       }
       _consecutiveErrors = 0; // Éxito: Reiniciar contador
@@ -687,7 +819,7 @@ class Alex {
     }
   }
 
-  Future<bool> _pushMirrorToCloud(String bancoId, {bool isDeepSync = false, String? priorityTable}) async {
+  Future<bool> _pushMirrorToCloud(String bancoId, {bool isDeepSync = false, String? priorityTable, bool fromRemotePulse = false}) async {
     final db = await _db.database;
     final tables = { priorityTable, 'jugadas', 'planes', 'listeros', 'bank_colors', 'limites', 'partes', 'resultados', 'notificaciones' }.whereType<String>().toList();
 
@@ -733,11 +865,7 @@ class Alex {
                     'updated_at': DateTime.now().toUtc().toIso8601String(), // ASEGURAR SIEMPRE NUEVA FECHA
                   };
                   debugPrint("[ALEX_SYNC_TURBO] Subiendo ráfaga de ${allSectionJugadas.length} jugadas de $pin...");
-                  try {
-                    await _supabase.from('jugadas').upsert(cleanBatch);
-                  } catch (_) {
-                    await _supabase.from('jugadas').upsert(cleanBatch, onConflict: 'banco_id,listero_pin,fecha,seccion,loteria');
-                  }
+                  await _supabase.from('jugadas').upsert(cleanBatch, onConflict: 'banco_id,listero_pin,fecha,seccion,loteria');
                   
                   final pendingIds = allSectionJugadas.where((j) => j['sync'] == 1).map((e) => e['id'] as int).toList();
                   if (pendingIds.isNotEmpty) await db.update('jugadas', {'sync': 0}, where: "id IN (${pendingIds.join(',')})");
@@ -762,9 +890,9 @@ class Alex {
             }
             _db.notifySyncUpdate(-999);
             
-            // Si soy LISTERO, avisar al banco que subí jugadas nuevas
+            // Si soy LISTERO, avisar al banco que subí jugadas nuevas (solo si no viene de un pulso remoto para evitar efecto eco)
             final String? role = (await SharedPreferences.getInstance()).getString("user_role");
-            if (role == "LISTERO") {
+            if (!fromRemotePulse && role == "LISTERO") {
               broadcastSyncPulse(isDeep: false);
             }
           } else {
@@ -785,17 +913,9 @@ class Alex {
 
               try {
                 if (table == 'resultados') {
-                  try {
-                    await _supabase.from('resultados').upsert(cloudRow, onConflict: 'banco_id,fecha,seccion,loteria');
-                  } catch (_) {
-                    await _supabase.from('resultados').upsert(cloudRow);
-                  }
+                  await _supabase.from('resultados').upsert(cloudRow, onConflict: 'banco_id,fecha,seccion,loteria');
                 } else if (table == 'partes') {
-                  try {
-                    await _supabase.from('partes').upsert(cloudRow, onConflict: 'banco_id,listero_pin,fecha,seccion,loteria');
-                  } catch (_) {
-                    await _supabase.from('partes').upsert(cloudRow);
-                  }
+                  await _supabase.from('partes').upsert(cloudRow, onConflict: 'banco_id,listero_pin,fecha,seccion,loteria');
                 } else {
                   await _supabase.from(table).upsert(cloudRow);
                 }
@@ -877,6 +997,10 @@ class Alex {
   }
 
   Future<void> _pullCloudToLocalOptimized(String bancoId, String lastSync, {bool isDeepSync = false, String? listeroPin}) async {
+    if (bancoId != "UNKNOWN" && bancoId.isNotEmpty) {
+      final isValid = await verifyActiveBankExists();
+      if (!isValid) return;
+    }
     // MOTOR DE PARIDAD TOTAL (Optimizado para evitar picos en Postgres)
     if (isDeepSync) {
       await _pullAtomics(bancoId);
@@ -982,50 +1106,58 @@ class Alex {
       }
 
       // PARTES (REPORTES)
-      var partesQuery = _supabase.from('partes').select().eq('banco_id', bId).gt('updated_at', timeFilter);
-      if (listeroPin != null && listeroPin.isNotEmpty) {
-        partesQuery = partesQuery.eq('listero_pin', listeroPin);
-      }
-      final cloudPartes = await partesQuery;
-      for (var p in cloudPartes) {
-        await _db.insertParte(p, sync: 0);
+      try {
+        var partesQuery = _supabase.from('partes').select().eq('banco_id', bId).gt('updated_at', timeFilter);
+        if (listeroPin != null && listeroPin.isNotEmpty) {
+          partesQuery = partesQuery.eq('listero_pin', listeroPin);
+        }
+        final cloudPartes = await partesQuery;
+        for (var p in cloudPartes) {
+          await _db.insertParte(p, sync: 0);
+        }
+      } catch (e) {
+        debugPrint("[ALEX_PULL_PARTES_ERR] $e");
       }
 
       // NOTIFICACIONES
-      final cloudNotis = await _supabase.from('notificaciones').select().eq('banco_id', bId).gt('updated_at', timeFilter);
-      
-      for (var n in cloudNotis) {
-         final String? targetPin = n['listero_pin']?.toString().trim();
-         final String myPin = (listeroPin ?? await getActiveListeroPin()).trim();
-         final String userRole = (await SharedPreferences.getInstance()).getString("user_role") ?? "LISTERO";
-         
-         final bool isForMe = (userRole == "BANCO") || 
-                              (targetPin == null || targetPin.isEmpty) || 
-                              (targetPin == myPin) || 
-                              (int.tryParse(targetPin) != null && int.tryParse(targetPin) == int.tryParse(myPin));
+      try {
+        final cloudNotis = await _supabase.from('notificaciones').select().eq('banco_id', bId).gt('updated_at', timeFilter);
+        
+        for (var n in cloudNotis) {
+           final String? targetPin = n['listero_pin']?.toString().trim();
+           final String myPin = (listeroPin ?? await getActiveListeroPin()).trim();
+           final String userRole = (await SharedPreferences.getInstance()).getString("user_role") ?? "LISTERO";
+           
+           final bool isForMe = (userRole == "BANCO") || 
+                                (targetPin == null || targetPin.isEmpty) || 
+                                (targetPin == myPin) || 
+                                (int.tryParse(targetPin) != null && int.tryParse(targetPin) == int.tryParse(myPin));
 
-         if (isForMe) {
-            final String uuidKey = n['uuid'] ?? '${n['id']}_$bId';
-            final bool isNew = await _db.insertNotificacion(
-              n['titulo'] ?? "📢 AVISO OFICIAL", 
-              n['mensaje'] ?? "", 
-              listeroPin: targetPin, 
-              bancoId: bId, 
-              sync: 0, 
-              uuid: uuidKey, 
-              esOficial: n['es_oficial'] == 1 || n['es_oficial'] == true
-            );
-
-            if (isNew && userRole == "LISTERO") {
-              final int notiId = (uuidKey.hashCode).abs() % 100000;
-              NotificationService().showNotification(
-                id: notiId,
-                title: n['titulo'] ?? "📢 AVISO OFICIAL",
-                body: n['mensaje'] ?? "",
-                payloadKey: "noti_$uuidKey",
+           if (isForMe) {
+              final String uuidKey = n['uuid'] ?? '${n['id']}_$bId';
+              final bool isNew = await _db.insertNotificacion(
+                n['titulo'] ?? "📢 AVISO OFICIAL", 
+                n['mensaje'] ?? "", 
+                listeroPin: targetPin, 
+                bancoId: bId, 
+                sync: 0, 
+                uuid: uuidKey, 
+                esOficial: n['es_oficial'] == 1 || n['es_oficial'] == true
               );
-            }
-         }
+
+              if (isNew && userRole == "LISTERO") {
+                final int notiId = (uuidKey.hashCode).abs() % 100000;
+                NotificationService().showNotification(
+                  id: notiId,
+                  title: n['titulo'] ?? "📢 AVISO OFICIAL",
+                  body: n['mensaje'] ?? "",
+                  payloadKey: "noti_$uuidKey",
+                );
+              }
+           }
+        }
+      } catch (e) {
+        debugPrint("[ALEX_PULL_NOTIS_ERR] $e");
       }
       
       // COMUNICADOS GLOBALES
@@ -1105,13 +1237,22 @@ class Alex {
     }
   }
 
+  DateTime? _lastListeroHeartbeat;
+
   Future<void> _updateListeroHeartbeat(String bancoId, String pin) async {
     if (pin.isEmpty) return;
+    if (_lastListeroHeartbeat != null && 
+        DateTime.now().difference(_lastListeroHeartbeat!).inMinutes < 10) {
+      return;
+    }
+    _lastListeroHeartbeat = DateTime.now();
     try {
       await _supabase.from('listeros').update({
         'last_seen': DateTime.now().toUtc().toIso8601String(),
       }).match({'banco_id': bancoId, 'pin': pin});
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("[ALEX_HEARTBEAT_ERR] $e");
+    }
   }
 
   Future<void> _resyncAffectedSections(String bancoId) async {
@@ -1276,13 +1417,20 @@ class Alex {
 
   Future<Map<String, dynamic>> finalizeBankCreation(String requestId, String password, String name) async {
     try {
-      // 0. VERIFICAR QUE LA CONTRASEÑA NO ESTÉ REPETIDA EN OTRO BANCO EN NUBE
+      // 0. VERIFICAR QUE LA CONTRASEÑA NO ESTÉ REPETIDA EN OTRO BANCO O LISTA EN NUBE
       try {
         final existingPass = await _supabase.from('bancos').select('id').eq('password', password).maybeSingle();
         if (existingPass != null) {
           return {
             'success': false, 
             'error': 'ESTA CONTRASEÑA YA ES UTILIZADA POR OTRO BANCO. POR FAVOR ELIJA UNA CONTRASEÑA DIFERENTE.'
+          };
+        }
+        final existingListero = await _supabase.from('listeros').select('pin').eq('pin', password).maybeSingle();
+        if (existingListero != null) {
+          return {
+            'success': false, 
+            'error': 'ESTA CONTRASEÑA YA ESTÁ EN USO COMO PIN DE UNA LISTA EN EL SISTEMA. POR FAVOR ELIJA OTRA.'
           };
         }
       } catch (_) {}
@@ -1355,26 +1503,119 @@ class Alex {
     return "UNKNOWN_DEVICE";
   }
 
-  Future<bool> deleteBankFromServer(String bancoId) async {
+  Future<List<String>> getCloudBanks() async {
     try {
-      debugPrint("[ALEX] Programador eliminando banco $bancoId de la nube...");
-      // 1. Borrar de la tabla bancos
-      await _supabase.from('bancos').delete().eq('id', bancoId);
+      final List<dynamic> res = await _supabase.from('bancos').select('id');
+      final Set<String> cloudBankIds = {};
+      for (var item in res) {
+        final id = item['id']?.toString().trim();
+        if (id != null && id.isNotEmpty) {
+          cloudBankIds.add(id);
+        }
+      }
       
-      // 2. Borrar solicitudes asociadas en bank_requests para liberar el dispositivo
-      try {
-        await _supabase.from('bank_requests').delete().eq('banco_id', bancoId);
-      } catch (_) {}
-
-      // 3. Borrar tablas asociadas al banco
-      final tables = ['jugadas', 'resultados', 'partes', 'notificaciones', 'comunicados', 'limites', 'listeros', 'planes', 'bank_colors'];
-      for (var t in tables) {
-        try { await _supabase.from(t).delete().eq('banco_id', bancoId); } catch (_) {}
+      // Si la consulta en la nube fue exitosa, la lista de Supabase es la verdad absoluta.
+      // Purgar cualquier banco local en SQLite que haya sido eliminado de la nube (incluido MASTER_BANK si no existe en Supabase).
+      final localBanks = await _db.getAllBanks();
+      for (var localId in localBanks) {
+        if (!cloudBankIds.contains(localId)) {
+          debugPrint("[ALEX_CLEANUP] Purgando banco eliminado localmente: $localId");
+          await _db.deleteBankLocalData(localId);
+        }
       }
 
-      // 4. Limpiar localmente
-      await _db.deleteBankLocalData(bancoId);
+      return cloudBankIds.toList()..sort();
+    } catch (e) {
+      debugPrint("[ALEX_GET_CLOUD_BANKS_ERR] $e");
+      return await _db.getAllBanks();
+    }
+  }
+
+  Future<bool> deleteBankFromServer(String bancoId) async {
+    try {
+      final String bId = bancoId.trim();
+      final int? numId = int.tryParse(bId);
+
+      debugPrint("[ALEX] Programador eliminando banco $bId de la nube...");
+
+      // 1. Obtener la contraseña del banco por si difiere el ID
+      String? bankPass;
+      try {
+        final bankRes = await _supabase.from('bancos').select('password').eq('id', bId).maybeSingle();
+        if (bankRes != null) {
+          bankPass = bankRes['password']?.toString();
+        } else if (numId != null) {
+          final bankResNum = await _supabase.from('bancos').select('password').eq('id', numId).maybeSingle();
+          if (bankResNum != null) {
+            bankPass = bankResNum['password']?.toString();
+          }
+        }
+      } catch (e) {
+        debugPrint("[ALEX_DEL_PASS_ERR] $e");
+      }
+
+      // 2. PRIMERO: Borrar todas las tablas hijas para no violar restricciones de clave foránea en Postgres
+      final tables = ['jugadas', 'resultados', 'partes', 'notificaciones', 'comunicados', 'limites', 'listeros', 'planes', 'bank_colors', 'bank_requests'];
+      for (var t in tables) {
+        try { 
+          await _supabase.from(t).delete().eq('banco_id', bId); 
+        } catch (e) {
+          debugPrint("[ALEX_DEL_CHILD_ERR] $t ($bId): $e");
+        }
+        if (numId != null) {
+          try { 
+            await _supabase.from(t).delete().eq('banco_id', numId); 
+          } catch (_) {}
+        }
+      }
+
+      // 3. SEGUNDO: Borrar de la tabla principal 'bancos'
+      bool deletedFromBancos = false;
+      try {
+        await _supabase.from('bancos').delete().eq('id', bId);
+        deletedFromBancos = true;
+      } catch (e) {
+        debugPrint("[ALEX_DEL_BANCO_ERR1] $e");
+      }
+
+      if (numId != null) {
+        try {
+          await _supabase.from('bancos').delete().eq('id', numId);
+          deletedFromBancos = true;
+        } catch (e) {
+          debugPrint("[ALEX_DEL_BANCO_ERR2] $e");
+        }
+      }
+
+      if (bankPass != null && bankPass.isNotEmpty) {
+        try {
+          await _supabase.from('bancos').delete().eq('password', bankPass);
+          deletedFromBancos = true;
+        } catch (e) {
+          debugPrint("[ALEX_DEL_BANCO_ERR3] $e");
+        }
+      }
+
+      // 4. TERCERO: Limpiar localmente en SQLite
+      await _db.deleteBankLocalData(bId);
+      if (numId != null) {
+        await _db.deleteBankLocalData(numId.toString());
+      }
       
+      // 5. Si era el banco activo local, limpiar sesión completamente
+      final prefs = await SharedPreferences.getInstance();
+      final String? curB = prefs.getString("banco_id") ?? prefs.getString("active_banco_id");
+      if (curB == bId || (numId != null && curB == numId.toString())) {
+        await prefs.clear();
+      }
+      if (bankPass != null && prefs.getString("last_banco_pin") == bankPass) {
+        await prefs.clear();
+      }
+
+      // 6. Notificar pulso de sincronización
+      broadcastSyncPulse(isDeep: true);
+      
+      debugPrint("[ALEX] BANCO $bId ELIMINADO EXITOSAMENTE (Nube y Local: $deletedFromBancos).");
       return true;
     } catch (e) {
       debugPrint("[ALEX_DELETE_BANK_ERR] $e");
@@ -1392,6 +1633,60 @@ class Alex {
        await _db.setBankColor(bancoId, colorHex);
        syncDataToCloud();
      } catch (_) {}
+  }
+
+  Future<bool> updateBankPassword(String bancoId, String newPassword) async {
+    try {
+      final String cleanPass = newPassword.trim();
+      final String bId = bancoId.trim();
+      final int? numId = int.tryParse(bId);
+      if (cleanPass.isEmpty) return false;
+
+      final List<dynamic> existingList = await _supabase.from('bancos').select('id').eq('password', cleanPass);
+      if (existingList.isNotEmpty) {
+        for (var b in existingList) {
+          final String foundId = b['id']?.toString().trim() ?? "";
+          if (foundId != bId) {
+            // Comprobar si el banco encontrado es un registro huérfano sin actividad
+            try {
+              final listeros = await _supabase.from('listeros').select('pin').eq('banco_id', foundId).limit(1);
+              final jugadas = await _supabase.from('jugadas').select('id').eq('banco_id', foundId).limit(1);
+              if (listeros.isEmpty && jugadas.isEmpty) {
+                debugPrint("[ALEX_UPDATE_PASS] Banco $foundId es un registro huérfano en la nube. Eliminándolo para liberar contraseña...");
+                await deleteBankFromServer(foundId);
+                continue;
+              }
+            } catch (_) {}
+
+            debugPrint("[ALEX_UPDATE_PASS_ERR] Contraseña ya asignada a otro banco activo ($foundId).");
+            return false;
+          }
+        }
+      }
+
+      final listeroCheck = await _supabase.from('listeros').select('pin').eq('pin', cleanPass).limit(1);
+      if (listeroCheck.isNotEmpty) {
+        debugPrint("[ALEX_UPDATE_PASS_ERR] La contraseña ya está asignada al PIN de una lista.");
+        return false;
+      }
+
+      try { await _supabase.from('bancos').update({'password': cleanPass}).eq('id', bId); } catch (_) {}
+      if (numId != null) {
+        try { await _supabase.from('bancos').update({'password': cleanPass}).eq('id', numId); } catch (_) {}
+      }
+
+      // Actualizar caché local de credencial para invalidar la vieja inmediatamente
+      final prefs = await SharedPreferences.getInstance();
+      final savedB = prefs.getString("banco_id");
+      if (savedB == bId) {
+        await prefs.setString("last_banco_pin", cleanPass);
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint("[ALEX_UPDATE_PASS_ERR] Error actualizando clave: $e");
+      return false;
+    }
   }
 
   Future<String> getBankName(String? bancoId) async {
@@ -1423,6 +1718,72 @@ class Alex {
     final res = await _db.getBankLoterias(bId);
     await prefs.setString("cached_bank_loterias_$bId", res);
     return res;
+  }
+
+  /// Verifica la disponibilidad de un PIN de Lista/Listero en TODOS los bancos del sistema (local y en la nube/Supabase).
+  /// Retorna `null` si el PIN está libre y disponible.
+  /// Retorna un mensaje explicativo en español si el PIN ya está registrado o es inválido.
+  Future<String?> checkPinAvailability(String pin, {String? currentBancoId}) async {
+    final cleanPin = pin.trim();
+    if (cleanPin.isEmpty || cleanPin.length != 4) {
+      return "El PIN debe contener exactamente 4 cifras.";
+    }
+
+    // 1. PINs reservados del sistema
+    final upper = cleanPin.toUpperCase();
+    if (upper == "B8080" || cleanPin == "4608pr" || cleanPin == "pp0030" || cleanPin == "9999") {
+      return "PIN RESERVADO: Este código no puede ser usado para una lista.";
+    }
+
+    // 2. Verificar si coincide con alguna clave de banco registrada localmente
+    bool isBankPinLocal = await _db.isBankRegistered(cleanPin);
+    if (isBankPinLocal) {
+      return "PIN NO VÁLIDO: Este código está reservado para la clave de un banco.";
+    }
+
+    // 3. Verificar si el PIN pertenece a alguna lista en SQLite local (en cualquier banco)
+    final localListero = await _db.findListeroGlobally(cleanPin);
+    if (localListero != null) {
+      final String bId = (localListero['banco_id'] ?? '').toString().trim();
+      if (currentBancoId == null || bId != currentBancoId) {
+        final Map<String, dynamic>? listData = localListero['listero'] as Map<String, dynamic>?;
+        final String name = listData?['nombre']?.toString() ?? "";
+        return "PIN NO DISPONIBLE: El PIN '$cleanPin' ya pertenece a la lista${name.isNotEmpty ? " '$name'" : ""} en el banco '$bId'. Todos los PINs deben ser únicos en general.";
+      }
+    }
+
+    // 4. VERIFICACIÓN EN LA NUBE (SUPABASE) EN TODOS LOS BANCOS
+    try {
+      // a) Verificar si es contraseña de algún banco en Supabase
+      final bankCheck = await _supabase
+          .from('bancos')
+          .select('id')
+          .or('id.eq.$cleanPin,password.eq.$cleanPin')
+          .maybeSingle();
+      if (bankCheck != null) {
+        return "PIN NO VÁLIDO: Este código coincide con la clave de un banco en el sistema.";
+      }
+
+      // b) Buscar en la tabla 'listeros' de Supabase en TODOS los bancos
+      final cloudListeros = await _supabase
+          .from('listeros')
+          .select('banco_id, pin, nombre')
+          .eq('pin', cleanPin);
+
+      if (cloudListeros.isNotEmpty) {
+        for (var item in cloudListeros) {
+          final String bId = (item['banco_id'] ?? '').toString().trim();
+          if (currentBancoId == null || bId != currentBancoId) {
+            final String name = item['nombre']?.toString() ?? "";
+            return "PIN YA REGISTRADO: El PIN '$cleanPin' ya está siendo usado por la lista${name.isNotEmpty ? " '$name'" : ""} en otro banco. Los PINs no se pueden repetir entre bancos.";
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("[ALEX_CHECK_PIN_ERR] Error al verificar PIN en nube: $e");
+    }
+
+    return null; // Disponible
   }
 
   Future<String> getListeroLoterias(String? bancoId, String listeroPin) async {
@@ -1458,17 +1819,29 @@ class Alex {
           'loterias': cleanLoterias,
           'updated_at': DateTime.now().toUtc().toIso8601String(),
         }, onConflict: 'banco_id');
-      } catch (postgrestErr) {
-        debugPrint("[ALEX_UPDATE_LOTERIAS_POSTGREST_ERR] $postgrestErr");
-        try {
-          await _supabase.from('bank_colors').upsert({
-            'banco_id': bancoId.trim(),
-            'color_hex': colorHex,
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-          }, onConflict: 'banco_id');
-        } catch (_) {}
+      } catch (e) {
+        debugPrint("[ALEX_UPDATE_LOTERIAS_ERR] $e");
       }
+
+      final prefs = await SharedPreferences.getInstance();
+      final activeB = prefs.getString("active_banco_id") ?? prefs.getString("banco_id");
+      if (activeB == bancoId) {
+        if (cleanLoterias == "FLORIDA") {
+          await prefs.setString("sync_loteria", "FLORIDA");
+          await prefs.setString("sync_seccion", "DIA");
+        } else if (cleanLoterias == "GEORGIA") {
+          await prefs.setString("sync_loteria", "GEORGIA");
+          await prefs.setString("sync_seccion", "MIDDAY");
+        }
+      }
+
+      final keys = prefs.getKeys().where((k) => k.startsWith("cached_listero_loterias_${bancoId}_")).toList();
+      for (var k in keys) {
+        await prefs.remove(k);
+      }
+
       TiroService().notifyNewTiro(null);
+      _db.notifySyncUpdate(-999);
       syncDataToCloud(isDeepSync: true);
     } catch (e) {
       debugPrint("[ALEX_UPDATE_LOTERIAS_ERR] $e");
@@ -1583,6 +1956,9 @@ class Alex {
     // 6. SINCRO TURBO: Forzar subida inmediata y aviso a dispositivos
     await syncDataToCloud(isDeepSync: true);
     broadcastSyncPulse(isDeep: true);
+
+    TiroService().notifyNewTiro(tiro);
+    _db.notifySyncUpdate(-999);
 
     return listerosProcesados;
   }
@@ -1758,27 +2134,60 @@ class Alex {
     return part.split('').map((d) => spheres[d] ?? d).join('');
   }
 
-  Future<void> logout({bool fullReset = false}) async {
+  DateTime? _lastBankVerificationTime;
+  bool _lastBankVerificationResult = true;
+
+  /// Verifica si el banco activo actual aún existe en la nube (Supabase) con caché de 5 minutos.
+  /// Si el banco fue eliminado por el programador, borra los datos locales y fuerza cierre de sesión.
+  Future<bool> verifyActiveBankExists() async {
     final prefs = await SharedPreferences.getInstance();
-    
-    if (fullReset) {
-      debugPrint("[ALEX] Ejecutando RESET TOTAL de identidad...");
-      await prefs.clear();
-      return;
+    final String? role = prefs.getString("user_role");
+    if (role == null || role == "PROGRAMADOR") return true;
+
+    final String? activeBankId = prefs.getString("active_banco_id") ?? prefs.getString("banco_id");
+    if (activeBankId == null || activeBankId.isEmpty || activeBankId == "UNKNOWN") {
+      return true;
     }
 
-    final String? lastBank = prefs.getString("banco_id");
-    final String? lastActiveBank = prefs.getString("active_banco_id");
-    final String? lastRole = prefs.getString("user_role");
-    
+    if (_lastBankVerificationTime != null && 
+        DateTime.now().difference(_lastBankVerificationTime!).inMinutes < 5) {
+      return _lastBankVerificationResult;
+    }
+
+    try {
+      final int? numId = int.tryParse(activeBankId);
+      final resList = await _supabase.from('bancos').select('id').eq('id', activeBankId).maybeSingle();
+      
+      bool exists = (resList != null);
+      if (!exists && numId != null) {
+        final resNum = await _supabase.from('bancos').select('id').eq('id', numId).maybeSingle();
+        if (resNum != null) exists = true;
+      }
+
+      _lastBankVerificationResult = exists;
+      _lastBankVerificationTime = DateTime.now();
+
+      if (!exists) {
+        debugPrint("[ALEX] ALERTA CRÍTICA: El banco '$activeBankId' no existe en la nube. Limpiando...");
+        await _db.deleteBankLocalData(activeBankId);
+        await logout(fullReset: true);
+        _liveBetsController.add({
+          'type': 'BANK_DELETED',
+          'message': 'EL BANCO HA SIDO ELIMINADO POR EL PROGRAMADOR.'
+        });
+        return false;
+      }
+    } catch (e) {
+      debugPrint("[ALEX_VERIFY_BANK_ERR] Error comprobando existencia de banco: $e");
+    }
+    return _lastBankVerificationResult;
+  }
+
+  Future<void> logout({bool fullReset = false}) async {
+    final prefs = await SharedPreferences.getInstance();
+    debugPrint("[ALEX] Ejecutando cierre de sesión completo y borrado de caché de identidad...");
     await prefs.clear();
-    
-    // Preservar identidad mínima para comunicados pre-login
-    if (lastBank != null) await prefs.setString("banco_id", lastBank);
-    if (lastActiveBank != null) await prefs.setString("active_banco_id", lastActiveBank);
-    if (lastRole != null) await prefs.setString("user_role", lastRole);
-    
-    debugPrint("[ALEX] Sesión cerrada. Identidad de banco preservada para avisos.");
+    _db.notifySyncUpdate(-999);
   }
 
   DateTime? _lastBankActiveNotify;
@@ -1792,11 +2201,13 @@ class Alex {
         DateTime.now().difference(_lastBankActiveNotify!).inMinutes < 10) {
       return;
     }
+    _lastBankActiveNotify = DateTime.now(); // Fijar la marca de tiempo antes de la consulta para evitar retrolog del temporizador
 
     try { 
       await _supabase.from('bancos').update({'last_active': DateTime.now().toUtc().toIso8601String()}).eq('id', id); 
-      _lastBankActiveNotify = DateTime.now();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint("[ALEX_NOTIFY_BANK_ERR] $e");
+    }
   }
 
   async.Stream<Map<String, dynamic>> get onLiveBetReceived => _liveBetsController.stream;
@@ -1811,7 +2222,7 @@ class Alex {
   
   final ValueNotifier<OtaEvent?> downloadProgress = ValueNotifier<OtaEvent?>(null);
 
-  Future<void> downloadAndInstallApk(String url) async {
+  Future<void> downloadAndInstallApk(String url, {int? versionCode}) async {
     if (_isDownloadingApk) {
       debugPrint("[ALEX_OTA] Descarga ya en curso. Ignorando solicitud duplicada.");
       return;
@@ -1824,7 +2235,7 @@ class Alex {
         if (await canLaunchUrl(uri)) {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
         } else {
-          debugPrint("[ALEX_OTA] No se pudo abrir la URL en el navegador de Linux: $url");
+          debugPrint("[ALEX_OTA] No se pudo abrir la URL en el navegador: $url");
         }
       } catch (e) {
         debugPrint("[ALEX_OTA_ERR] Error abriendo URL en escritorio: $e");
@@ -1832,39 +2243,142 @@ class Alex {
       return;
     }
 
-    try {
-      _isDownloadingApk = true;
-      downloadProgress.value = OtaEvent(OtaStatus.DOWNLOADING, "0");
-      
-      final watchdog = async.Timer(const Duration(minutes: 5), () {
-        if (_isDownloadingApk) {
-           _isDownloadingApk = false;
-           downloadProgress.value = OtaEvent(OtaStatus.INTERNAL_ERROR, "0");
-        }
-      });
+    _isDownloadingApk = true;
+    downloadProgress.value = OtaEvent(OtaStatus.DOWNLOADING, "0");
 
-      OtaUpdate().execute(url, destinationFilename: 'srecord_update.apk').listen(
-        (OtaEvent event) {
-          downloadProgress.value = event;
-          if (event.status == OtaStatus.INSTALLING || event.status == OtaStatus.ALREADY_RUNNING_ERROR || event.status == OtaStatus.PERMISSION_NOT_GRANTED_ERROR) {
-            watchdog.cancel();
+    final String apkFileName = "srecord_v${versionCode ?? DateTime.now().millisecondsSinceEpoch}.apk";
+
+    // 1. Limpiar instaladores APK viejos en /storage/emulated/0/Download/ para evitar bucles con versiones obsoletas
+    try {
+      final downloadDir = Directory("/storage/emulated/0/Download");
+      if (await downloadDir.exists()) {
+        final List<FileSystemEntity> files = downloadDir.listSync();
+        for (var file in files) {
+          final String name = file.path.split('/').last;
+          if ((name.startsWith("srecord_") || name.startsWith("srecord_v")) && name.endsWith(".apk") && name != apkFileName) {
+            try {
+              file.deleteSync();
+              debugPrint("[ALEX_OTA] APK obsoleto purgado de disco: $name");
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("[ALEX_OTA_CLEANUP_ERR] $e");
+    }
+
+    try {
+      // MOTOR RESILIENTE PARA CUBA: Descarga reanudable por ráfagas con reintentos infinitos
+      bool downloadSuccess = await _resumableApkDownloadWithRetry(url, apkFileName);
+
+      if (downloadSuccess) {
+        debugPrint("[ALEX_CUBA_OTA] Descarga 100% completada e íntegra ($apkFileName). Lanzando instalador Android...");
+        downloadProgress.value = OtaEvent(OtaStatus.INSTALLING, "100");
+        
+        OtaUpdate().execute(url, destinationFilename: apkFileName).listen(
+          (OtaEvent event) {
+            downloadProgress.value = event;
+            if (event.status == OtaStatus.INSTALLING || event.status == OtaStatus.ALREADY_RUNNING_ERROR || event.status == OtaStatus.PERMISSION_NOT_GRANTED_ERROR) {
+              _isDownloadingApk = false;
+            }
+          },
+          onError: (e) {
+            _isDownloadingApk = false;
+          },
+          onDone: () {
             _isDownloadingApk = false;
           }
-        },
-        onError: (e) {
-          watchdog.cancel();
-          _isDownloadingApk = false;
-          downloadProgress.value = OtaEvent(OtaStatus.INTERNAL_ERROR, "0");
-        },
-        onDone: () {
-          watchdog.cancel();
-          _isDownloadingApk = false;
-        }
-      );
+        );
+      } else {
+        _isDownloadingApk = false;
+        downloadProgress.value = OtaEvent(OtaStatus.DOWNLOAD_ERROR, "0");
+      }
     } catch (e) {
+      debugPrint("[ALEX_CUBA_OTA_ERR] $e");
       _isDownloadingApk = false;
-      downloadProgress.value = OtaEvent(OtaStatus.INTERNAL_ERROR, "0");
+      downloadProgress.value = OtaEvent(OtaStatus.DOWNLOAD_ERROR, "0");
     }
+  }
+
+  /// Descargador resiliente adaptado para conexiones inestables en Cuba.
+  /// Reanuda la descarga desde el exacto byte donde ocurrió el microcorte sin perder progreso.
+  Future<bool> _resumableApkDownloadWithRetry(String url, String filename) async {
+    const int maxRetries = 50; // Hasta 50 reintentos automáticos a través de microcortes
+    int retries = 0;
+    
+    final String localPath = "/storage/emulated/0/Download/$filename";
+    final File localFile = File(localPath);
+
+    while (retries < maxRetries) {
+      try {
+        int existingBytes = 0;
+        if (await localFile.exists()) {
+          existingBytes = await localFile.length();
+        }
+
+        // Obtener tamaño total mediante solicitud HEAD
+        int totalBytes = 0;
+        try {
+          final headReq = await http.head(Uri.parse(url)).timeout(const Duration(seconds: 10));
+          totalBytes = int.tryParse(headReq.headers['content-length'] ?? '') ?? 0;
+        } catch (_) {}
+
+        // Si la descarga ya estaba completa al 100%
+        if (totalBytes > 0 && existingBytes >= totalBytes) {
+          debugPrint("[ALEX_CUBA_OTA] El archivo ya existía completo en disco ($existingBytes bytes).");
+          downloadProgress.value = OtaEvent(OtaStatus.DOWNLOADING, "100");
+          return true;
+        }
+
+        debugPrint("[ALEX_CUBA_OTA] Solicitando rango HTTP: bytes=$existingBytes- ($existingBytes / ${totalBytes > 0 ? totalBytes : 'desconocido'})");
+
+        final request = http.Request('GET', Uri.parse(url));
+        if (existingBytes > 0) {
+          request.headers['Range'] = 'bytes=$existingBytes-';
+        }
+
+        final client = http.Client();
+        final response = await client.send(request).timeout(const Duration(seconds: 15));
+
+        if (response.statusCode != 200 && response.statusCode != 206) {
+          if (existingBytes > 0) {
+            try { await localFile.delete(); } catch (_) {}
+            existingBytes = 0;
+          }
+        }
+
+        if (totalBytes <= 0) {
+          totalBytes = (response.contentLength ?? 0) + existingBytes;
+        }
+
+        final sink = localFile.openWrite(mode: existingBytes > 0 ? FileMode.append : FileMode.write);
+        
+        await for (var chunk in response.stream) {
+          sink.add(chunk);
+          existingBytes += chunk.length;
+
+          if (totalBytes > 0) {
+            final double pct = (existingBytes / totalBytes) * 100;
+            final int progressInt = pct.clamp(0, 100).toInt();
+            downloadProgress.value = OtaEvent(OtaStatus.DOWNLOADING, progressInt.toString());
+          }
+        }
+
+        await sink.flush();
+        await sink.close();
+        client.close();
+
+        if (totalBytes <= 0 || existingBytes >= totalBytes) {
+          downloadProgress.value = OtaEvent(OtaStatus.DOWNLOADING, "100");
+          return true;
+        }
+      } catch (e) {
+        retries++;
+        debugPrint("[ALEX_CUBA_OTA_MICROCUT] Microcorte #$retries detectado: $e. Reanudando en 1.5s...");
+        await Future.delayed(const Duration(milliseconds: 1500));
+      }
+    }
+    return false;
   }
 
   DateTime? _lastUpdateCheck;
@@ -1872,7 +2386,7 @@ class Alex {
   Future<void> checkAppUpdate({bool force = false}) async {
     // Evitar checar muy seguido a menos que sea forzado
     if (!force && _lastUpdateCheck != null && 
-        DateTime.now().difference(_lastUpdateCheck!).inMinutes < 5) {
+        DateTime.now().difference(_lastUpdateCheck!).inMinutes < 2) {
       return;
     }
     
@@ -1880,20 +2394,13 @@ class Alex {
       _lastUpdateCheck = DateTime.now();
       final packageInfo = await PackageInfo.fromPlatform();
       final currentBuild = int.tryParse(packageInfo.buildNumber) ?? 0;
-      final packageName = packageInfo.packageName;
 
-      debugPrint("[ALEX_UPDATE] Verificando versión para $packageName (Build: $currentBuild)...");
+      debugPrint("[ALEX_UPDATE] Verificando versión global en la nube (Build Actual: $currentBuild)...");
 
-      // Intentar buscar por el nombre de paquete actual, y si falla o es genérico (como en Linux/Web), usar el oficial
-      var query = _supabase.from('app_updates').select();
-      
-      if (packageName == "srecord" || packageName.isEmpty || Platform.isLinux) {
-        query = query.eq('package_name', "com.fusionpro.srecord.local");
-      } else {
-        query = query.eq('package_name', packageName);
-      }
-
-      final res = await query
+      // Consultar la versión más reciente publicada en Supabase sin filtrar por package_name
+      final res = await _supabase
+          .from('app_updates')
+          .select()
           .order('version_code', ascending: false)
           .limit(1)
           .maybeSingle();
@@ -1902,27 +2409,28 @@ class Alex {
         final latestBuild = res['version_code'] as int;
         
         if (latestBuild > currentBuild) {
-          debugPrint("[ALEX_UPDATE] NUEVA VERSIÓN DETECTADA: $latestBuild");
-          final vName = res['version_name']?.toString() ?? 'NEW';
+          debugPrint("[ALEX_UPDATE] ¡NUEVA VERSIÓN DETECTADA!: Build $latestBuild (Local es $currentBuild)");
+          final vName = res['version_name']?.toString() ?? 'NUEVA';
           final data = {
             'current': packageInfo.version,
             'required': vName,
+            'versionCode': latestBuild,
             'url': res['apk_url'],
-            'hash': res['apk_hash'], // Incluir firma de integridad
+            'hash': res['apk_hash'],
             'message': res['release_notes'] ?? "Nueva versión disponible con mejoras de seguridad y rendimiento."
           };
           updateRequired.value = data;
 
-          // DISPARO AUTOMÁTICO: Iniciar descarga de inmediato si no está en curso
+          // DISPARO AUTOMÁTICO: Iniciar descarga e instalación inmediatamente
           if (!_isDownloadingApk && data['url'] != null) {
-             debugPrint("[ALEX_UPDATE] Iniciando descarga automática...");
+             debugPrint("[ALEX_UPDATE] Disparando descarga e instalación automática...");
              NotificationService().showNotification(
                id: 999,
                title: "🚀 MEJORA DE SISTEMA DISPONIBLE",
                body: "Descargando versión $vName para optimizar tu equipo.",
                payloadKey: "update_available_$vName",
              );
-             downloadAndInstallApk(data['url']);
+             downloadAndInstallApk(data['url'], versionCode: latestBuild);
           }
         } else {
           updateRequired.value = null;
@@ -2021,18 +2529,55 @@ class Alex {
       final String publicUrl = _supabase.storage.from(bucket).getPublicUrl(fileName);
       final packageInfo = await PackageInfo.fromPlatform();
 
-      // Guardar con firma de integridad para que el cliente la verifique
-      await _supabase.from('app_updates').upsert({
+      final updateRecord = {
         'version_code': versionCode,
         'version_name': versionName,
         'apk_url': publicUrl,
         'release_notes': releaseNotes,
         'package_name': packageInfo.packageName,
-        'apk_hash': hashString, // Nuevo campo de integridad
+        'apk_hash': hashString,
         'created_at': DateTime.now().toUtc().toIso8601String(),
-      }, onConflict: 'package_name,version_code');
+      };
 
-      debugPrint("[ALEX_UPLOAD] ACTUALIZACIÓN v$versionCode PUBLICADA EXITOSAMENTE.");
+      // Guardar en tabla app_updates para todos los nombres de paquete posibles
+      // garantizando compatibilidad 100% con versiones viejas en la calle
+      final packageNamesToUpdate = {
+        packageInfo.packageName,
+        'com.fusionpro.srecord.local',
+        'srecord',
+        'com.example.srecord',
+      };
+
+      for (var pkg in packageNamesToUpdate) {
+        if (pkg.isNotEmpty) {
+          final rec = Map<String, dynamic>.from(updateRecord);
+          rec['package_name'] = pkg;
+          try {
+            await _supabase.from('app_updates').upsert(rec, onConflict: 'package_name,version_code');
+          } catch (e) {
+            debugPrint("[ALEX_UPLOAD_PKG_ERR] $pkg: $e");
+          }
+        }
+      }
+
+      // ANUNCIO MAESTRO EN TIEMPO REAL VÍA WEBSOCKET A TODAS LAS APPS CONECTADAS
+      try {
+        if (_systemChannel == null) {
+          _systemChannel = _supabase.channel('system_updates');
+          _systemChannel?.subscribe();
+        }
+        await _systemChannel?.sendBroadcastMessage(
+          event: 'NEW_APP_UPDATE',
+          payload: updateRecord,
+        );
+      } catch (broadcastErr) {
+        debugPrint("[ALEX_UPLOAD_BROADCAST_ERR] $broadcastErr");
+      }
+
+      // Re-ejecutar comprobación local inmediata por si es este mismo dispositivo
+      checkAppUpdate(force: true);
+
+      debugPrint("[ALEX_UPLOAD] ACTUALIZACIÓN v$versionCode PUBLICADA Y ANUNCIADA EN TIEMPO REAL.");
       return {'success': true, 'url': publicUrl, 'hash': hashString};
     } catch (e) {
       debugPrint("[ALEX_UPLOAD_ERR] $e");
@@ -2043,36 +2588,25 @@ class Alex {
   }
 
   Future<Map<String, dynamic>> handleLogin(String password) async {
-    // 0. SOLICITUD DE BANCO (Acceso secreto solicitado por el banco)
-    if (password == "B8080") {
+    final cleanPass = password.trim();
+    if (cleanPass.isEmpty) {
+      return {'success': false, 'error': 'POR FAVOR INGRESE UN PIN O CONTRASEÑA.'};
+    }
+
+    // 0. SOLICITUD DE BANCO (Acceso secreto B8080)
+    if (cleanPass == "B8080") {
       final res = await requestNewBank();
       if (res['success'] == true) {
-        return {
-          'success': true,
-          'is_request': true,
-          'message': res['message'],
-        };
+        return {'success': true, 'is_request': true, 'message': res['message']};
       } else {
-        return {
-          'success': false,
-          'error': res['error'] ?? "Fallo al enviar solicitud",
-        };
+        return {'success': false, 'error': res['error'] ?? "Fallo al enviar solicitud"};
       }
     }
 
-    // 1. MASTER KEYS (Programador y Emergencia)
-    if (password == "Sonya002215") {
+    // 1. MASTER KEYS (Programador)
+    if (cleanPass == "pp0030") {
        final prefs = await SharedPreferences.getInstance();
-       await prefs.setString("user_role", "BANCO");
-       await prefs.setString("banco_id", "MASTER_BANK"); 
-       await prefs.setString("active_banco_id", "MASTER_BANK");
-       _pullCloudToLocalOptimized("MASTER_BANK", "2000-01-01T00:00:00Z", isDeepSync: true).catchError((e) {
-         debugPrint("[ALEX_LOGIN_PULL_ERR] $e");
-       });
-       return {'success': true, 'role': 'BANCO'};
-    }
-    if (password == "pp0030") {
-       final prefs = await SharedPreferences.getInstance();
+       await prefs.clear();
        await prefs.setString("user_role", "PROGRAMADOR");
        return {'success': true, 'role': 'PROGRAMADOR'};
     }
@@ -2080,26 +2614,35 @@ class Alex {
     final String deviceId = await _getDeviceId();
     final prefs = await SharedPreferences.getInstance();
 
+    bool cloudChecked = false;
     // 2. VERIFICAR BANCO EN NUBE PRIMERO PARA GARANTIZAR IDENTIDAD ÚNICA POR CONTRASEÑA
     try {
       final List<dynamic> bankResList = await _supabase
           .from('bancos')
           .select()
-          .eq('password', password)
+          .eq('password', cleanPass)
           .timeout(const Duration(seconds: 4));
 
+      cloudChecked = true;
+
       if (bankResList.length > 1) {
-        return {'success': false, 'error': 'CONTRASEÑA AMBIGUA: EXISTEN MÚLTIPLES BANCOS CON ESTA MISMA CLAVE. CONTACTE AL PROGRAMADOR.'};
+        return {
+          'success': false, 
+          'error': 'CONTRASEÑA AMBIGUA: EXISTEN MÚLTIPLES BANCOS CON ESTA MISMA CLAVE EN NUBE. CONTACTE AL PROGRAMADOR.'
+        };
       }
 
       if (bankResList.isNotEmpty) {
         final bankRes = Map<String, dynamic>.from(bankResList.first);
         final String bId = bankRes['id'].toString();
         
+        // Limpieza de sesión previa para evitar que datos del banco anterior se mezclen
+        await prefs.clear();
+
         await prefs.setString("user_role", "BANCO");
         await prefs.setString("banco_id", bId);
         await prefs.setString("active_banco_id", bId);
-        await prefs.setString("last_banco_pin", password);
+        await prefs.setString("last_banco_pin", cleanPass);
 
         final String bankLoterias = await getBankLoterias(bId);
         if (bankLoterias == "FLORIDA") {
@@ -2117,42 +2660,54 @@ class Alex {
         
         broadcastSyncPulse(isDeep: true);
         return {'success': true, 'role': 'BANCO'};
+      } else {
+        // La nube confirmó que NO existe ningún banco con esta clave. Limpiar caché viejo
+        if (prefs.getString("last_banco_pin") == cleanPass) {
+          final String? oldB = prefs.getString("banco_id");
+          if (oldB != null) await _db.deleteBankLocalData(oldB);
+          await prefs.clear();
+        }
       }
     } catch (e) {
       debugPrint("[ALEX_LOGIN_BANK_ERR] $e");
     }
 
-    // 3. RESPALDO LOCAL DE BANCO
-    final String? savedBancoId = prefs.getString("banco_id");
-    final String? savedBancoPin = prefs.getString("last_banco_pin");
-    if (savedBancoId != null && savedBancoPin == password) {
-      await prefs.setString("user_role", "BANCO");
-      await prefs.setString("active_banco_id", savedBancoId);
-      
-      final String bankLoterias = await getBankLoterias(savedBancoId);
-      if (bankLoterias == "FLORIDA") {
-        await prefs.setString("sync_loteria", "FLORIDA");
-        await prefs.setString("sync_seccion", "DIA");
-      } else if (bankLoterias == "GEORGIA") {
-        await prefs.setString("sync_loteria", "GEORGIA");
-        await prefs.setString("sync_seccion", "MIDDAY");
-      }
+    // 3. RESPALDO LOCAL DE BANCO (Solo en caso de estar totalmente offline)
+    if (!cloudChecked) {
+      final String? savedBancoId = prefs.getString("banco_id");
+      final String? savedBancoPin = prefs.getString("last_banco_pin");
+      if (savedBancoId != null && savedBancoPin == cleanPass) {
+        await prefs.setString("user_role", "BANCO");
+        await prefs.setString("active_banco_id", savedBancoId);
+        
+        final String bankLoterias = await getBankLoterias(savedBancoId);
+        if (bankLoterias == "FLORIDA") {
+          await prefs.setString("sync_loteria", "FLORIDA");
+          await prefs.setString("sync_seccion", "DIA");
+        } else if (bankLoterias == "GEORGIA") {
+          await prefs.setString("sync_loteria", "GEORGIA");
+          await prefs.setString("sync_seccion", "MIDDAY");
+        }
 
-      initRealtimeChannels(savedBancoId);
-      _pullCloudToLocalOptimized(savedBancoId, "2000-01-01T00:00:00Z", isDeepSync: true).catchError((e) {
-        debugPrint("[ALEX_BG_PULL_ERR] $e");
-      });
-      broadcastSyncPulse(isDeep: true);
-      return {'success': true, 'role': 'BANCO'};
+        initRealtimeChannels(savedBancoId);
+        _pullCloudToLocalOptimized(savedBancoId, "2000-01-01T00:00:00Z", isDeepSync: true).catchError((e) {
+          debugPrint("[ALEX_BG_PULL_ERR] $e");
+        });
+        broadcastSyncPulse(isDeep: true);
+        return {'success': true, 'role': 'BANCO'};
+      }
     }
 
-    // 4. VERIFICAR LISTERO EN NUBE (Asegurar estado fresco de vinculación)
+    // 4. VERIFICAR LISTERO EN NUBE
+    bool listeroCloudChecked = false;
     try {
       final List<dynamic> cloudListeroResList = await _supabase
           .from('listeros')
           .select()
-          .eq('pin', password)
+          .eq('pin', cleanPass)
           .timeout(const Duration(seconds: 3));
+
+      listeroCloudChecked = true;
 
       if (cloudListeroResList.length > 1) {
         return {'success': false, 'error': 'PIN AMBIGUO: ESTE CÓDIGO EXISTE EN MÚLTIPLES BANCOS. CONTACTE A SU BANCO.'};
@@ -2160,30 +2715,62 @@ class Alex {
 
       if (cloudListeroResList.isNotEmpty) {
         final Map<String, dynamic> cloudListeroRes = Map.from(cloudListeroResList.first);
+        final String bId = cloudListeroRes['banco_id']?.toString() ?? "";
+
+        // VERIFICAR QUE EL BANCO DE ESTA LISTA AÚN EXISTA EN NUBE
+        try {
+          final bankCheck = await _supabase.from('bancos').select('id').eq('id', bId).maybeSingle();
+          if (bankCheck == null) {
+            await _db.deleteListero(cleanPass, bId, sync: 0);
+            await _db.deleteBankLocalData(bId);
+            return {'success': false, 'error': 'EL BANCO DE ESTA LISTA FUE ELIMINADO POR EL PROGRAMADOR.'};
+          }
+        } catch (_) {}
+
         return await _validateAndLinkListero(
           listero: cloudListeroRes,
-          password: password,
+          password: cleanPass,
           deviceId: deviceId,
           prefs: prefs,
         );
+      } else {
+        // La nube confirmó que este PIN tampoco existe en listeros
+        final localStale = await _db.findListeroGlobally(cleanPass);
+        if (localStale != null) {
+          final String bId = localStale['banco_id']?.toString() ?? "";
+          if (bId.isNotEmpty) {
+            await _db.deleteListero(cleanPass, bId, sync: 0);
+          }
+        }
       }
     } catch (e) {
       debugPrint("[ALEX_LOGIN_LISTERO_CLOUD_ERR] $e");
     }
 
     // 5. RUTA OFFLINE / LOCAL PARA LISTERO
-    final listeroData = await _db.findListeroGlobally(password);
-    if (listeroData != null) {
-      final listero = listeroData['listero'];
-      return await _validateAndLinkListero(
-        listero: listero,
-        password: password,
-        deviceId: deviceId,
-        prefs: prefs,
-      );
+    if (!listeroCloudChecked && !cloudChecked) {
+      final listeroData = await _db.findListeroGlobally(cleanPass);
+      if (listeroData != null) {
+        final listero = listeroData['listero'];
+        final String bId = listeroData['banco_id']?.toString() ?? "";
+
+        // Verificar localmente si el banco aún existe en SQLite
+        final bool bankExistsLocal = await _db.isBankRegistered(bId);
+        if (!bankExistsLocal && bId.isNotEmpty) {
+          await _db.deleteListero(cleanPass, bId, sync: 0);
+          return {'success': false, 'error': 'EL BANCO ASOCIADO A ESTA LISTA FUE ELIMINADO.'};
+        }
+
+        return await _validateAndLinkListero(
+          listero: listero,
+          password: cleanPass,
+          deviceId: deviceId,
+          prefs: prefs,
+        );
+      }
     }
 
-    return {'success': false, 'error': 'PIN INCORRECTO O NO ENCONTRADO EN NUBE'};
+    return {'success': false, 'error': 'PIN O CONTRASEÑA INCORRECTA O NO ENCONTRADA EN NUBE'};
   }
 
   /// Valida restricciones de vinculación y bloqueos para un Listero
@@ -2193,14 +2780,24 @@ class Alex {
     required String deviceId,
     required SharedPreferences prefs,
   }) async {
-    final String bId = listero['banco_id'];
+    final String bId = (listero['banco_id'] ?? '').toString();
 
-    // A. Comprobar si está bloqueado por el banco
+    // A. Comprobar si el banco al que pertenece esta lista sigue existiendo en Supabase
+    try {
+      final bankCheck = await _supabase.from('bancos').select('id').eq('id', bId).maybeSingle();
+      if (bankCheck == null) {
+        await _db.deleteListero(password, bId, sync: 0);
+        await _db.deleteBankLocalData(bId);
+        return {'success': false, 'error': 'EL BANCO DE ESTA LISTA FUE ELIMINADO POR EL PROGRAMADOR.'};
+      }
+    } catch (_) {}
+
+    // B. Comprobar si está bloqueado por el banco
     if (listero['bloqueado'] == 1 || listero['bloqueado'] == true) {
       return {'success': false, 'error': 'ESTA LISTA SE ENCUENTRA BLOQUEADA POR EL BANCO'};
     }
 
-    // B. Comprobar si ESTE dispositivo tiene un anclaje activo previo
+    // C. Comprobar si ESTE dispositivo tiene un anclaje activo previo a otra lista
     final String? anchoredPin = prefs.getString("anchored_listero_pin");
     if (anchoredPin != null && anchoredPin != password) {
       Map<String, dynamic>? anchoredListero = await _db.getListeroByPin(anchoredPin, bId);
@@ -2221,19 +2818,18 @@ class Alex {
       if (isAnchoredStillActive) {
         return {'success': false, 'error': 'ESTE MÓVIL ESTÁ ANCLADO A LA LISTA $anchoredPin. NO PUEDE ACCEDER A OTRA.'};
       } else {
-        // La lista anclada previa fue desvinculada por el banco: liberar el móvil
         await prefs.remove("anchored_listero_pin");
       }
     }
 
-    // C. Comprobar si ESTA LISTA ya está vinculada a OTRO dispositivo
+    // D. Comprobar si ESTA LISTA ya está vinculada a OTRO dispositivo
     final bool isLinked = (listero['vinculado'] == 1 || listero['vinculado'] == true);
     final String? linkedDeviceId = listero['device_id'];
     if (isLinked && linkedDeviceId != null && linkedDeviceId.isNotEmpty && linkedDeviceId != deviceId) {
       return {'success': false, 'error': 'LISTA YA VINCULADA A OTRO MÓVIL. SOLICITE DESVINCULACIÓN AL BANCO.'};
     }
 
-    // D. Comprobar si ESTE dispositivo ya está vinculado a otra lista en BD local
+    // E. Comprobar si ESTE dispositivo ya está vinculado a otra lista en BD local
     final allLocal = await _db.getListeros(bancoId: bId);
     for (var l in allLocal) {
       final bool lVinc = (l['vinculado'] == 1 || l['vinculado'] == true);
@@ -2242,7 +2838,10 @@ class Alex {
       }
     }
 
-    // E. Vinculación exitosa: actualizar nube, local y preferencias
+    // F. Limpieza absoluta de la sesión anterior para evitar mezclar datos
+    await prefs.clear();
+
+    // G. Vinculación exitosa: actualizar nube, local y preferencias
     final updatedData = {
       ...listero,
       'device_id': deviceId,
@@ -2297,9 +2896,10 @@ class Alex {
     if (bancoId == null) return;
 
     try {
-      debugPrint("[ALEX] Desvinculando listero $pin del banco $bancoId...");
+      final cleanPin = pin.trim();
+      debugPrint("[ALEX] Desvinculando listero $cleanPin del banco $bancoId...");
       // 1. Actualizar localmente inmediatamente
-      final local = await _db.getListeroByPin(pin, bancoId);
+      final local = await _db.getListeroByPin(cleanPin, bancoId);
       if (local != null) {
         final updated = Map<String, dynamic>.from(local);
         updated['vinculado'] = 0;
@@ -2312,7 +2912,7 @@ class Alex {
       await _supabase.from('listeros').update({
         'device_id': null,
         'vinculado': 0
-      }).match({'pin': pin, 'banco_id': bancoId});
+      }).match({'pin': cleanPin, 'banco_id': bancoId});
 
       // 3. Confirmar sync local
       if (local != null) {
@@ -2322,8 +2922,25 @@ class Alex {
         updated['sync'] = 0;
         await _db.upsertListero(updated);
       }
-      
-      broadcastSyncPulse(isDeep: true);
+
+      // 4. Emitir evento directo por WebSocket en tiempo real a todas las apps
+      try {
+        if (_commandChannel == null) {
+          await initRealtimeChannels(bancoId);
+        }
+        await _commandChannel?.sendBroadcastMessage(
+          event: 'LISTERO_UNLINK',
+          payload: {
+            'pin': cleanPin,
+            'banco_id': bancoId,
+          },
+        );
+      } catch (e) {
+        debugPrint("[ALEX_UNLINK_BROADCAST_ERR] $e");
+      }
+
+      _db.notifySyncUpdate(-999);
+      broadcastSyncPulse(isDeep: true, targetPin: cleanPin);
     } catch (e) {
       debugPrint("[ALEX_UNLINK_ERR] $e");
       broadcastSyncPulse(isDeep: true);
@@ -2336,11 +2953,30 @@ class Alex {
     final bancoId = await getActiveBancoId();
     if (bancoId == null) return;
     try {
-      await _db.deleteListero(pin, bancoId, sync: 1);
+      final cleanPin = pin.trim();
+      await _db.deleteListero(cleanPin, bancoId, sync: 1);
       await _supabase.from('listeros').delete().match({
         'banco_id': bancoId,
-        'pin': pin,
+        'pin': cleanPin,
       });
+
+      // Emitir evento directo por WebSocket en tiempo real
+      try {
+        if (_commandChannel == null) {
+          await initRealtimeChannels(bancoId);
+        }
+        await _commandChannel?.sendBroadcastMessage(
+          event: 'LISTERO_DELETE',
+          payload: {
+            'pin': cleanPin,
+            'banco_id': bancoId,
+          },
+        );
+      } catch (e) {
+        debugPrint("[ALEX_DELETE_BROADCAST_ERR] $e");
+      }
+
+      _db.notifySyncUpdate(-999);
       broadcastSyncPulse(isDeep: true);
     } catch (e) {
       debugPrint("[ALEX_DELETE_LISTERO_ERR] $e");
@@ -2372,6 +3008,40 @@ class Alex {
     broadcastSyncPulse(isDeep: true);
   }
 
+  /// Comprueba en SQLite y Supabase si el listero activo está bloqueado por el banco
+  Future<void> checkListeroBlockStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String userRole = prefs.getString("user_role") ?? "GUEST";
+      if (userRole != "LISTERO") {
+        isListeroBlocked.value = false;
+        return;
+      }
+
+      final String myPin = await getActiveListeroPin();
+      final String? bId = await getActiveBancoId();
+      if (myPin.isEmpty || bId == null || bId == "UNKNOWN") {
+        isListeroBlocked.value = false;
+        return;
+      }
+
+      final local = await _db.getListeroByPin(myPin, bId);
+      if (local != null) {
+        bool blocked = (local['bloqueado'] == 1 || local['bloqueado'] == true);
+        isListeroBlocked.value = blocked;
+      } else {
+        final global = await _db.findListeroGlobally(myPin);
+        if (global != null) {
+          final Map<String, dynamic>? lData = global['listero'] as Map<String, dynamic>?;
+          bool blocked = (lData?['bloqueado'] == 1 || lData?['bloqueado'] == true);
+          isListeroBlocked.value = blocked;
+        }
+      }
+    } catch (e) {
+      debugPrint("[ALEX_CHECK_BLOCK_ERR] $e");
+    }
+  }
+
   /// Bloquea o desbloquea un listero
   Future<void> setListeroBlockStatus(String pin, bool blocked) async {
     final bancoId = await getActiveBancoId();
@@ -2391,10 +3061,67 @@ class Alex {
         updated['sync'] = 0;
         await _db.upsertListero(updated);
       }
-      broadcastSyncPulse(isDeep: true);
+
+      // 3. Emitir evento directo por WebSocket en tiempo real
+      try {
+        if (_commandChannel == null) {
+          await initRealtimeChannels(bancoId);
+        }
+        await _commandChannel?.sendBroadcastMessage(
+          event: 'LISTERO_BLOCK_TOGGLE',
+          payload: {
+            'pin': pin.trim(),
+            'blocked': blocked,
+            'banco_id': bancoId,
+          },
+        );
+      } catch (e) {
+        debugPrint("[ALEX_BLOCK_REALTIME_ERR] $e");
+      }
+
+      broadcastSyncPulse(isDeep: true, targetPin: pin);
     } catch (e) {
       debugPrint("[ALEX_BLOCK_ERR] $e");
       rethrow;
+    }
+  }
+
+  /// Verifica si la lista activa del dispositivo listero fue desvinculada o eliminada en Supabase
+  Future<void> verifyActiveListeroStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String userRole = prefs.getString("user_role") ?? "";
+      if (userRole != "LISTERO") return;
+
+      final String myPin = await getActiveListeroPin();
+      final String? bId = await getActiveBancoId();
+      if (myPin.isEmpty || bId == null || bId == "UNKNOWN") return;
+
+      final myDevId = await _getDeviceId();
+      final resList = await _supabase.from('listeros').select().eq('banco_id', bId).eq('pin', myPin);
+      
+      if (resList.isEmpty) {
+        debugPrint("[ALEX_SECURITY] Mi lista '$myPin' ya no existe en la nube. Cerrando sesión...");
+        await logout(fullReset: true);
+        _liveBetsController.add({
+          'type': 'LISTERO_UNLINKED',
+          'message': '⚠️ SU LISTA HA SIDO ELIMINADA POR EL BANCO.'
+        });
+      } else {
+        final res = Map<String, dynamic>.from(resList.first);
+        final bool isLinked = (res['vinculado'] == 1 || res['vinculado'] == true);
+        final String? cloudDevId = res['device_id'];
+        if (!isLinked || (cloudDevId != null && cloudDevId.isNotEmpty && cloudDevId != myDevId)) {
+          debugPrint("[ALEX_SECURITY] Mi lista '$myPin' fue desvinculada en la nube (cloudDevId: $cloudDevId vs miDevId: $myDevId). Cerrando sesión...");
+          await logout(fullReset: true);
+          _liveBetsController.add({
+            'type': 'LISTERO_UNLINKED',
+            'message': '⚠️ SU LISTA HA SIDO DESVINCULADA POR EL BANCO.'
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("[ALEX_SECURITY_ERR] Error verificando estado de listero: $e");
     }
   }
 }

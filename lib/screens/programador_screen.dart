@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:io';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async' as async;
 import 'package:file_picker/file_picker.dart';
 import 'package:srecord/services/database_helper.dart';
 import 'package:srecord/services/alex_api.dart';
@@ -29,6 +29,7 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
   bool _isLoading = true;
   bool _isUploading = false;
   late TabController _tabController;
+  async.StreamSubscription? _syncSubscription;
 
   final TextEditingController _versionCodeController = TextEditingController();
   final TextEditingController _versionNameController = TextEditingController();
@@ -48,11 +49,27 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadData();
+    _db.onSyncUpdate = _onDbSyncUpdate;
+    _syncSubscription = _alex.onLiveBetReceived.listen((payload) {
+      if (mounted) _loadData();
+    });
+  }
+
+  void _onDbSyncUpdate(int id) {
+    if (mounted) _loadData();
+  }
+
+  @override
+  void dispose() {
+    _db.removeSyncUpdate(_onDbSyncUpdate);
+    _syncSubscription?.cancel();
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    final banks = await _db.getAllBanks();
+    final banks = await _alex.getCloudBanks();
     final used = await _db.getUsedColors();
     final requests = await _alex.getPendingBankRequests();
     
@@ -79,12 +96,6 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
       _pendingRequests = requests;
       _isLoading = false;
     });
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   @override
@@ -115,8 +126,7 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.redAccent),
             onPressed: () async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.clear();
+              await Alex().logout();
               if (!context.mounted) return;
               Navigator.pushAndRemoveUntil(
                 context,
@@ -300,6 +310,12 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
                       ),
                     ),
                     const SizedBox(width: 4),
+                    IconButton(
+                      icon: const Icon(Icons.key_rounded, color: Colors.greenAccent, size: 20),
+                      tooltip: "Cambiar Contraseña / PIN del Banco",
+                      onPressed: () => _showEditPasswordDialog(bankId),
+                    ),
+                    const SizedBox(width: 2),
                     IconButton(
                       icon: const Icon(Icons.delete_sweep, color: Colors.redAccent, size: 20),
                       onPressed: () => _showDeleteBankDialog(bankId),
@@ -717,6 +733,57 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
         children: [
           Text("$label: ", style: const TextStyle(color: Colors.white24, fontSize: 10, fontWeight: FontWeight.bold)),
           Expanded(child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 11, fontFamily: 'monospace'), overflow: TextOverflow.ellipsis)),
+        ],
+      ),
+    );
+  }
+
+  void _showEditPasswordDialog(String bankId) {
+    final TextEditingController passCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0F172A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text("CAMBIAR CONTRASEÑA / PIN - $bankId", style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 14)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Ingrese la nueva clave de acceso para este banco:", style: TextStyle(color: Colors.white70, fontSize: 12)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passCtrl,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              decoration: InputDecoration(
+                hintText: "Nueva Contraseña / PIN",
+                hintStyle: const TextStyle(color: Colors.white30),
+                filled: true,
+                fillColor: Colors.black26,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCELAR", style: TextStyle(color: Colors.white38))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38BDF8), foregroundColor: Colors.black),
+            onPressed: () async {
+              final newPass = passCtrl.text.trim();
+              if (newPass.isEmpty) return;
+              Navigator.pop(ctx);
+              final success = await _alex.updateBankPassword(bankId, newPass);
+              if (mounted) {
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("🔑 Contraseña del Banco $bankId actualizada con éxito.")));
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("⚠️ Error: La contraseña ya está en uso o falló la conexión."), backgroundColor: Colors.orangeAccent));
+                }
+              }
+            },
+            child: const Text("GUARDAR", style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
         ],
       ),
     );

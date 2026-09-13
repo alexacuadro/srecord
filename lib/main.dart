@@ -117,6 +117,7 @@ class _ConnectivityFrameState extends State<ConnectivityFrame> with SingleTicker
   double _progress = 0;
   late StreamSubscription<bool> _subscription;
   late StreamSubscription<String> _securitySubscription;
+  StreamSubscription<Map<String, dynamic>>? _liveBetSubscription;
   late AnimationController _controller;
   late Animation<double> _animation;
 
@@ -158,6 +159,21 @@ class _ConnectivityFrameState extends State<ConnectivityFrame> with SingleTicker
     _securitySubscription = Alex().onSecurityViolation.listen((message) {
       if (mounted) {
         setState(() { _violationMessage = message; });
+      }
+    });
+
+    _liveBetSubscription = Alex().onLiveBetReceived.listen((payload) {
+      if (!mounted) return;
+      final String? type = payload['type'];
+      if (type == 'BANK_DELETED' || type == 'LISTERO_UNLINKED' || type == 'LISTERO_BLOCKED') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(payload['message'] ?? 'SU SESIÓN HA SIDO FINALIZADA POR EL BANCO.'),
+            backgroundColor: Colors.red.shade900,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
       }
     });
   }
@@ -248,6 +264,7 @@ class _ConnectivityFrameState extends State<ConnectivityFrame> with SingleTicker
   void dispose() {
     _subscription.cancel();
     _securitySubscription.cancel();
+    _liveBetSubscription?.cancel();
     Alex().isUserVerified.removeListener(_onVerificationChanged);
     Alex().updateRequired.removeListener(_onUpdateChanged);
     Alex().downloadProgress.removeListener(_onDownloadProgressChanged);
@@ -329,6 +346,13 @@ class _ConnectivityFrameState extends State<ConnectivityFrame> with SingleTicker
                       child: Stack(
                         children: [
                           widget.child,
+                          ValueListenableBuilder<bool>(
+                            valueListenable: Alex().isListeroBlocked,
+                            builder: (context, isBlocked, _) {
+                              if (!isBlocked) return const SizedBox.shrink();
+                              return const BlockedListeroOverlay();
+                            },
+                          ),
                           if (showUpdateMask)
                             _buildUpdateMask(),
                           if (showSecurityMask && !showUpdateMask)
@@ -544,6 +568,104 @@ class _ConnectivityFrameState extends State<ConnectivityFrame> with SingleTicker
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class BlockedListeroOverlay extends StatelessWidget {
+  const BlockedListeroOverlay({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return AbsorbPointer(
+      absorbing: true,
+      child: Stack(
+        children: [
+          // Fondo oscuro semi-transparente que inhabilita toda la pantalla
+          Container(
+            width: double.infinity,
+            height: double.infinity,
+            color: Colors.black.withValues(alpha: 0.88),
+          ),
+          
+          // Cartel Diagonal Prominente
+          Center(
+            child: Transform.rotate(
+              angle: -0.20, // Inclinación diagonal (~ -11.5 grados)
+              child: Container(
+                width: MediaQuery.of(context).size.width * 1.35, // Cubre de extremo a extremo
+                padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.red.shade900,
+                      Colors.red.shade700,
+                      Colors.red.shade900,
+                    ],
+                  ),
+                  border: const Border.symmetric(
+                    horizontal: BorderSide(color: Colors.amberAccent, width: 4),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.red.shade900.withValues(alpha: 0.8),
+                      blurRadius: 25,
+                      spreadRadius: 8,
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.9),
+                      blurRadius: 15,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.lock_rounded, color: Colors.amberAccent, size: 36),
+                        SizedBox(width: 12),
+                        Icon(Icons.block_flipped, color: Colors.white, size: 36),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        "LISTA BLOQUEADA POR EL BANCO",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 2.0,
+                          shadows: [
+                            Shadow(color: Colors.black, blurRadius: 10, offset: Offset(2, 2)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        "CONTACTE A SU ADMINISTRADOR PARA RESTABLECER EL ACCESO",
+                        style: TextStyle(
+                          color: Colors.amberAccent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -489,6 +489,29 @@ class DatabaseHelper {
     return await db.query('jugadas', where: whereClause, whereArgs: whereArgs, orderBy: 'id ASC');
   }
 
+  Future<String?> getLatestFechaConJugadas({required String bancoId, String? loteria}) async {
+    final db = await database;
+    String whereClause = '1=1';
+    List<dynamic> whereArgs = [];
+
+    if (bancoId != "UNKNOWN") {
+      whereClause += ' AND banco_id = ?';
+      whereArgs.add(bancoId.trim());
+    }
+
+    if (loteria != null && loteria.isNotEmpty) {
+      whereClause += " AND (loteria = ? OR (loteria IS NULL AND ? = 'FLORIDA'))";
+      whereArgs.add(loteria.trim().toUpperCase());
+      whereArgs.add(loteria.trim().toUpperCase());
+    }
+
+    final res = await db.query('jugadas', columns: ['fecha'], where: whereClause, whereArgs: whereArgs, orderBy: 'fecha DESC', limit: 1);
+    if (res.isNotEmpty) {
+      return res.first['fecha'] as String?;
+    }
+    return null;
+  }
+
   Future<int> deleteJugada(int id) async {
     final db = await database;
     final data = await db.query('jugadas', columns: ['banco_id', 'listero_pin', 'fecha', 'seccion'], where: 'id = ?', whereArgs: [id]);
@@ -643,7 +666,7 @@ class DatabaseHelper {
       whereArgs: [cleanData['banco_id'], cleanData['listero_pin'], cleanData['fecha'], cleanData['seccion'], lot, lot]
     );
     
-    int id = await db.insert('partes', cleanData);
+    int id = await db.insert('partes', cleanData, conflictAlgorithm: ConflictAlgorithm.replace);
 
     await db.transaction((txn) async {
       await _fullRecalculate(txn, cleanData['listero_pin'], cleanData['banco_id'], loteria: lot);
@@ -1046,11 +1069,12 @@ class DatabaseHelper {
 
   Future<void> upsertListero(Map<String, dynamic> data) async {
     final db = await database;
-    final bancoId = data['banco_id'];
-    final pin = data['pin'];
+    final String bancoId = (data['banco_id'] ?? '').toString().trim();
+    final String pin = (data['pin'] ?? '').toString().trim();
+    final int sync = data['sync'] ?? 1;
     
-    // RESTRICCIÓN DE SEGURIDAD: Un Listero no puede tener el PIN de un Banco o Master Key.
-    if (pin.toUpperCase() == "B8080" || pin == "4608pr") {
+    // RESTRICCIÓN DE SEGURIDAD: Un Listero no puede tener un PIN reservado del sistema.
+    if (pin.toUpperCase() == "B8080" || pin == "4608pr" || pin == "pp0030" || pin == "9999") {
       throw Exception("PIN RESERVADO: Este código no puede ser usado para una lista.");
     }
 
@@ -1063,32 +1087,57 @@ class DatabaseHelper {
     final existing = await getListeroByPin(pin, bancoId);
     
     if (existing == null) {
-      // It's a new listero, check the 100 limit
+      // Verificar que el PIN no exista en NINGÚN OTRO BANCO localmente
+      final globalListero = await findListeroGlobally(pin);
+      if (globalListero != null) {
+        final String existingBankId = (globalListero['banco_id'] ?? '').toString().trim();
+        if (existingBankId.isNotEmpty && existingBankId != bancoId && sync != 0) {
+          final Map<String, dynamic>? listData = globalListero['listero'] as Map<String, dynamic>?;
+          final String existingName = listData?['nombre']?.toString() ?? "";
+          throw Exception("PIN DUPLICADO: El PIN '$pin' ya pertenece a una lista${existingName.isNotEmpty ? " ('$existingName')" : ""} en el banco '$existingBankId'. Todos los PINs deben ser únicos en general.");
+        }
+      }
+
+      // It's a new listero, check the 50 limit
       final countResult = await db.rawQuery('SELECT COUNT(*) as total FROM listeros WHERE banco_id = ?', [bancoId]);
       int count = Sqflite.firstIntValue(countResult) ?? 0;
-      if (count >= 100) {
-        throw Exception("Límite alcanzado: Un banco no puede tener más de 100 listas.");
+      if (count >= 50) {
+        throw Exception("Límite alcanzado: Un banco no puede tener más de 50 listas.");
       }
     }
 
+    final bool isLinked = (data['vinculado'] == true ||
+        data['vinculado'] == 1 ||
+        data['vinculado'] == '1' ||
+        data['vinculado'] == 'true' ||
+        (data['device_id'] != null && data['device_id'].toString().trim().isNotEmpty));
+
+    final bool isBlocked = (data['bloqueado'] == true ||
+        data['bloqueado'] == 1 ||
+        data['bloqueado'] == '1' ||
+        data['bloqueado'] == 'true');
+
     final row = {
-      'banco_id': bancoId.trim(),
-      'pin': pin.trim(),
+      'banco_id': bancoId,
+      'pin': pin,
       'nombre': data['nombre'],
       'plan': data['plan'],
       'loterias': data['loterias'] ?? 'AMBAS',
-      'bloqueado': (data['bloqueado'] == true || data['bloqueado'] == 1) ? 1 : 0,
-      'vinculado': (data['vinculado'] == true || data['vinculado'] == 1) ? 1 : 0,
+      'bloqueado': isBlocked ? 1 : 0,
+      'vinculado': isLinked ? 1 : 0,
       'device_id': data['device_id'],
-      'sync': data['sync'] ?? 1
+      'sync': sync
     };
     await db.insert('listeros', row, conflictAlgorithm: ConflictAlgorithm.replace);
-    _notifySync(data['sync'] == 0 ? -999 : -1);
+    _notifySync(sync == 0 ? -999 : -1);
   }
 
   Future<List<Map<String, dynamic>>> getListeros({required String bancoId}) async {
     final db = await database;
-    return await db.query('listeros', where: 'banco_id = ?', whereArgs: [bancoId]);
+    if (bancoId == "ALL") {
+      return await db.query('listeros');
+    }
+    return await db.query('listeros', where: 'banco_id = ?', whereArgs: [bancoId.trim()]);
   }
 
   Future<Map<String, dynamic>?> getListeroByPin(String pin, String bancoId) async {

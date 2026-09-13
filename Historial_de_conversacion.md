@@ -113,3 +113,9 @@
     - Se eliminaron sufijos informativos del campo `valor` en la base de datos para evitar truncamientos visuales ("E...").
     - **Respeto al Orden del Listero**: Se desactivó el ordenamiento automático de números; el sistema guarda y muestra la jugada en la secuencia exacta de entrada.
 - **Punto de Restauración**: Creación del checkpoint global en `backups/fase_parles_desglose_v1/`.
+
+### Fase 8: Cartel Informativo de Pago de Renta (Banca y Programador)
+- **Carácter Informativo**: El cartel de aviso de renta es únicamente informativo para el Banco y no bloquea las operaciones ni altera los pagos.
+- **Acción "OK, ENTERADO"**: Se incluye un botón explícito de confirmación que cierra la alerta.
+- **Persistencia en Inicio de Sesión**: El cartel reaparecerá en cada inicio de sesión (Sábado previo, Domingo de cobro y días posteriores con cobro vencido) hasta que el **Programador** acceda y marque formalmente el período como pagado.
+

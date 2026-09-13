@@ -24,29 +24,27 @@ class CoreNetwork {
   async.Timer? _stabilityTimer;
 
   void _startConnectivityMonitor() {
-    async.Timer.periodic(const Duration(seconds: 15), (timer) async {
+    async.Timer.periodic(const Duration(seconds: 5), (timer) async {
       final wasConnected = _isConnected;
       bool currentlyConnected = await _verifyCriticalInfrastructure();
       
+      if (!currentlyConnected) {
+        // Adaptación Cuba: Filtro de microcortes rápida re-verificación a los 1.2s antes de declarar OFFLINE
+        await Future.delayed(const Duration(milliseconds: 1200));
+        currentlyConnected = await _verifyCriticalInfrastructure();
+      }
+
       if (currentlyConnected != wasConnected) {
         if (currentlyConnected) {
-          // FILTRO DE ESTABILIDAD: Esperar 3 segundos de red sólida antes de notificar ONLINE
           _stabilityTimer?.cancel();
-          _stabilityTimer = async.Timer(const Duration(seconds: 3), () async {
-            // Re-verificar tras la espera
-            bool stillOnline = await _verifyCriticalInfrastructure();
-            if (stillOnline) {
-              _isConnected = true;
-              _statusController.add(true);
-              debugPrint("[CORE NETWORK] Red estable: ONLINE");
-            }
-          });
+          _isConnected = true;
+          _statusController.add(true);
+          debugPrint("[CORE NETWORK] Red estable: ONLINE");
         } else {
-          // OFFLINE se notifica inmediatamente por seguridad
           _stabilityTimer?.cancel();
           _isConnected = false;
           _statusController.add(false);
-          debugPrint("[CORE NETWORK] Red caída: OFFLINE");
+          debugPrint("[CORE NETWORK] Red caída tras microcorte confirmado: OFFLINE");
         }
       }
     });

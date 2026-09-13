@@ -164,8 +164,11 @@ class _BankMonitorScreenState extends State<BankMonitorScreen> {
   }
 
   bool _isOnline(String? lastSeen) {
-    if (lastSeen == null) return false;
-    final dt = DateTime.parse(lastSeen);
-    return DateTime.now().difference(dt).inMinutes < 5;
+    if (lastSeen == null || lastSeen.isEmpty) return false;
+    try {
+      final dt = DateTime.parse(lastSeen);
+      final diffInMinutes = DateTime.now().toUtc().difference(dt.toUtc()).inMinutes.abs();
+      return diffInMinutes < 3;
+    } catch (_) { return false; }
   }
 }

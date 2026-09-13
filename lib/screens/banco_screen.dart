@@ -34,6 +34,8 @@ class _BancoScreenState extends State<BancoScreen> {
   String _bancoName = "";
   Color _regentColor = Colors.lightBlue.shade800;
   String _activeLoteria = "FLORIDA";
+  bool _rentAlarmDismissedInSession = false;
+  bool _isRentDialogShowing = false;
 
   @override
   void initState() {
@@ -111,35 +113,45 @@ class _BancoScreenState extends State<BancoScreen> {
   }
 
   Future<void> _checkRentAlarm() async {
+    if (_rentAlarmDismissedInSession || _isRentDialogShowing) return;
+
     final shouldShow = await RentService().shouldShowPaymentReminder();
-    if (!shouldShow) return;
+    if (!shouldShow || _rentAlarmDismissedInSession || _isRentDialogShowing) return;
 
     final isSaturday = await RentService().isSaturdayBeforePaymentDay();
+    final isOverdue = await RentService().isPaymentOverdue();
     final monto = await RentService().getMonto();
 
-    final String timeTitle = isSaturday
-        ? "⏰ RECORDATORIO DE PAGO DE RENTA (MAÑANA DOMINGO)"
-        : "⏰ ALARMA DE COBRO DE RENTA (HOY DOMINGO)";
+    String timeTitle = "⏰ AVISO DE PAGO DE RENTA";
+    String timeMessage = "Recuerde realizar la liquidación del alquiler y mantenimiento de la plataforma.";
 
-    final String timeMessage = isSaturday
-        ? "Mañana es Domingo de Cobro Pactado para el mantenimiento y alquiler de la aplicación."
-        : "Hoy es Domingo de Cobro Pactado para el mantenimiento y alquiler de la aplicación.";
+    if (isSaturday) {
+      timeTitle = "⏰ RECORDATORIO DE PAGO DE RENTA (MAÑANA DOMINGO)";
+      timeMessage = "Mañana es Domingo de Cobro Pactado para el mantenimiento y alquiler de la aplicación.";
+    } else if (isOverdue) {
+      timeTitle = "⚠️ PAGO DE RENTA PENDIENTE";
+      timeMessage = "El cobro pactado para el mantenimiento de la plataforma se encuentra pendiente de liquidación.";
+    } else {
+      timeTitle = "⏰ ALARMA DE COBRO DE RENTA (HOY DOMINGO)";
+      timeMessage = "Hoy es Domingo de Cobro Pactado para el mantenimiento y alquiler de la aplicación.";
+    }
 
     if (mounted) {
-      showDialog(
+      _isRentDialogShowing = true;
+      await showDialog(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          backgroundColor: Colors.amber.shade50,
+          backgroundColor: const Color(0xFF1E293B),
           title: Row(
             children: [
-              Icon(Icons.alarm_on, color: Colors.amber.shade900, size: 28),
+              Icon(Icons.alarm_on, color: Colors.amber.shade400, size: 28),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   timeTitle,
-                  style: TextStyle(fontWeight: FontWeight.w900, color: Colors.amber.shade900, fontSize: 14),
+                  style: TextStyle(fontWeight: FontWeight.w900, color: Colors.amber.shade400, fontSize: 14),
                 ),
               ),
             ],
@@ -150,65 +162,61 @@ class _BancoScreenState extends State<BancoScreen> {
             children: [
               Text(
                 timeMessage,
-                style: TextStyle(fontSize: 12, color: Colors.amber.shade900, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.amber.shade100,
+                  color: Colors.amber.shade900.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.shade400),
+                  border: Border.all(color: Colors.amber.shade400.withValues(alpha: 0.5)),
                 ),
                 child: Column(
                   children: [
-                    const Text("MONTO LIQUIDACIÓN PACTADO:", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey)),
+                    const Text("MONTO LIQUIDACIÓN PACTADO:", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white54)),
                     const SizedBox(height: 4),
                     Text(
                       "\$${monto.round()} USD",
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.amber.shade900),
+                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.amber.shade400),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 12),
               const Text(
-                "Por favor liquide el pago correspondiente para mantener la plataforma del banco operativa sin interrupciones.",
-                style: TextStyle(fontSize: 11, color: Colors.black87),
+                "Por favor coordine el pago con el programador. Este aviso es únicamente informativo para el banco y volverá a mostrarse en cada inicio de sesión hasta que el programador marque la renta como pagada.",
+                style: TextStyle(fontSize: 11, color: Colors.white60),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () {
+                _rentAlarmDismissedInSession = true;
                 Navigator.pop(ctx);
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const RentConfigScreen()));
               },
-              child: const Text("VER CALENDARIO / PACTO"),
+              child: const Text("VER CALENDARIO", style: TextStyle(color: Colors.white54)),
             ),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade700,
+                backgroundColor: const Color(0xFF10B981),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              onPressed: () async {
-                await RentService().registrarPago(DateTime.now());
-                if (mounted) {
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text("¡Renta de \$${monto.round()} USD registrada como SALDADA!"),
-                    backgroundColor: Colors.green,
-                  ));
-                }
+              onPressed: () {
+                _rentAlarmDismissedInSession = true;
+                Navigator.pop(ctx);
               },
-              icon: const Icon(Icons.check_circle_outline),
-              label: const Text("MARCAR COMO PAGADO"),
+              icon: const Icon(Icons.check, size: 18),
+              label: const Text("OK, ENTERADO", style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         ),
       );
+      _isRentDialogShowing = false;
     }
   }
 
@@ -400,12 +408,12 @@ class _BancoScreenState extends State<BancoScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Flexible(
+          Expanded(
             child: Row(
               children: const [
                 Icon(Icons.security, size: 14, color: Colors.white70), 
                 SizedBox(width: 6), 
-                Flexible(
+                Expanded(
                   child: Text(
                     "ACCESO ADMINISTRATIVO", 
                     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 0.5), 
@@ -622,7 +630,12 @@ class _BancoScreenState extends State<BancoScreen> {
               elevation: 4,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false),
+            onPressed: () async {
+              await Alex().logout();
+              if (context.mounted) {
+                Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
+              }
+            },
             child: const Text("SALIR", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],

@@ -420,10 +420,12 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
   Future<void> _selectFecha() async {
     final openData = RecaudacionService.getOpenSeccionAndFecha(loteria: _activeLoteria);
     DateTime maxDate = DateTime.parse(openData["fecha"]!);
+    DateTime initDate = DateTime.tryParse(_activeFecha) ?? DateTime.now();
+    if (initDate.isAfter(maxDate)) initDate = maxDate;
 
     DateTime? picked = await showDatePicker(
       context: context, 
-      initialDate: DateTime.parse(_activeFecha), 
+      initialDate: initDate, 
       firstDate: DateTime(2024), 
       lastDate: maxDate
     );
@@ -807,6 +809,55 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
       return; 
     }
     if (_selectedIds.isEmpty) return;
+
+    final int count = _selectedIds.length;
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Colors.redAccent, width: 1.5),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                count == 1 ? "ELIMINAR JUGADA BOTE" : "ELIMINAR $count JUGADAS BOTE",
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          count == 1
+              ? "¿Está seguro de eliminar esta jugada de Bote permanentemente?\n\nEsta acción borrará el registro del teléfono y de la nube."
+              : "¿Está seguro de eliminar permanentemente las $count jugadas de Bote seleccionadas?\n\nEsta acción borrará los registros del teléfono y de la nube.",
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("CANCELAR", style: TextStyle(color: Colors.white54, fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.delete_forever, size: 18),
+            label: const Text("SÍ, BORRAR", style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
     
     try {
       final idsToDelete = _selectedIds.toList();
@@ -822,7 +873,10 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Jugadas eliminadas"), backgroundColor: Colors.green)
+          SnackBar(
+            content: Text(count == 1 ? "Jugada de Bote eliminada permanentemente" : "$count jugadas de Bote eliminadas permanentemente"),
+            backgroundColor: Colors.green,
+          )
         );
       }
     } catch (e) {
@@ -937,8 +991,8 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
               ),
               if (_selectedIds.isNotEmpty && !readOnly)
                 IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.white), 
-                  onPressed: () => showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text("Eliminar"), content: const Text("¿Seguro?"), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("NO")), TextButton(onPressed: () { Navigator.pop(ctx); _deleteSelected(); }, child: const Text("SI"))]))
+                  icon: const Icon(Icons.delete_forever, color: Colors.white), 
+                  onPressed: _deleteSelected,
                 ),
               _build3DListaFloatingButton(),
               const SizedBox(width: 8),
@@ -1358,10 +1412,9 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
   Widget _headerCell(String l, bool a, int f) => Expanded(flex: f, child: Text(l, textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: a ? Colors.red.shade900 : Colors.red.shade400)));
 
   Color _getSyncStatusColor(Map<String, dynamic> j) {
-    if (j['sync'] == 0) return Colors.green; // EN NUBE (Verde Vibrante)
-    final String lot = j['loteria']?.toString() ?? _activeLoteria;
-    if (RecaudacionService.isPastGracePeriod(j['seccion'], j['fecha'], loteria: lot)) return Colors.red; // FALLO / NO SUMA (Rojo)
-    return Colors.orange.shade900; // LOCAL / PENDIENTE (Naranja Sangre)
+    if (!RecaudacionService.isJugadaValida(j)) return Colors.red; // NO VÁLIDA / FALLO / NO ENVIADA A TIEMPO (Rojo)
+    if (j['sync'] == 0) return Colors.green; // EN NUBE / SUBIDA A TIEMPO (Verde Vibrante)
+    return Colors.orange.shade900; // LOCAL / PENDIENTE MIENTRAS EL SORTEO SIGA ABIERTO (Naranja Sangre)
   }
 
   Widget _historyColumn(ValueNotifier<List<Map<String, dynamic>>> n, int col, int f) => Expanded(flex: f, child: ValueListenableBuilder<int>(valueListenable: _activeField, builder: (ctx, act, _) => ValueListenableBuilder<List<Map<String, dynamic>>>(valueListenable: n, builder: (ctx, list, _) => ListView.builder(controller: col == 0 ? _bolaScroll : (col == 1 ? _parleScroll : _centenaScroll), padding: EdgeInsets.zero, itemCount: list.length, itemExtent: col == 1 ? null : 35, itemBuilder: (ctx, idx) {
@@ -1669,7 +1722,7 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
       _dIt(context, Icons.list_alt, 'LISTA', null), 
       _dIt(context, Icons.savings_outlined, 'BOTE', null, isSel: true), 
       const Divider(), 
-      ListTile(leading: const Icon(Icons.logout, color: Colors.redAccent), title: const Text('CERRAR SESIÓN', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)), onTap: () async { final prefs = await SharedPreferences.getInstance(); await prefs.remove("logged_listero_name"); await prefs.remove("current_listero_pin"); if (!mounted) return; Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false); })])), _buildBalanceBadge()]));
+      ListTile(leading: const Icon(Icons.logout, color: Colors.redAccent), title: const Text('CERRAR SESIÓN', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)), onTap: () async { await Alex().logout(); if (!mounted) return; Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false); })])), _buildBalanceBadge()]));
   }
 
   Widget _buildBalanceBadge() {
