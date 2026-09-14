@@ -24,7 +24,6 @@ class NotificationService {
 
     await _notificationsPlugin.initialize(initializationSettings);
 
-    // Crear canal explícitamente para asegurar máxima visibilidad (V4 para forzar actualización total)
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
       'srecord_pro_channel_v4', 
       'Comunicados y Alertas Críticas',
@@ -35,10 +34,22 @@ class NotificationService {
       showBadge: true,
     );
 
+    const AndroidNotificationChannel alarmChannel = AndroidNotificationChannel(
+      'srecord_danger_channel_v2', 
+      'Alarma de Peligro y Recorte',
+      description: 'Canal de ALARMA DE PELIGRO para avisos críticos.',
+      importance: Importance.max,
+      playSound: true,
+      sound: RawResourceAndroidNotificationSound('danger_alarm'),
+      enableVibration: true,
+      showBadge: true,
+    );
+
     final androidPlugin = _notificationsPlugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     
     await androidPlugin?.createNotificationChannel(channel);
+    await androidPlugin?.createNotificationChannel(alarmChannel);
     try {
       await androidPlugin?.requestNotificationsPermission();
     } catch (e) {
@@ -52,52 +63,58 @@ class NotificationService {
     required String body,
     String? bigText,
     String? payloadKey,
+    bool isAlarm = false,
   }) async {
-    // PROTECCIÓN CONTRA DUPLICADOS INFINITOS
-    if (payloadKey != null) {
-      final prefs = await SharedPreferences.getInstance();
-      
-      // FORZAR RECARGA: Asegura que si el Isolate de fondo envió algo, el principal lo sepa (y viceversa)
-      await prefs.reload();
+    try {
+      // PROTECCIÓN CONTRA DUPLICADOS INFINITOS
+      if (payloadKey != null) {
+        final prefs = await SharedPreferences.getInstance();
+        
+        // FORZAR RECARGA: Asegura que si el Isolate de fondo envió algo, el principal lo sepa (y viceversa)
+        await prefs.reload();
 
-      // 1. Verificar en memoria de sesión (Rápido)
-      if (_sessionNotifiedKeys.contains(payloadKey)) return;
+        // 1. Verificar en memoria de sesión (Rápido)
+        if (_sessionNotifiedKeys.contains(payloadKey)) return;
 
-      // 2. Verificar persistencia (Seguro entre reinicios e Isolates)
-      final String fullKey = "noti_sent_$payloadKey";
-      if (prefs.getBool(fullKey) == true) {
+        // 2. Verificar persistencia (Seguro entre reinicios e Isolates)
+        final String fullKey = "noti_sent_$payloadKey";
+        if (prefs.getBool(fullKey) == true) {
+          _sessionNotifiedKeys.add(payloadKey);
+          return;
+        }
+
+        // Registrar como enviada ANTES de mostrarla para evitar ráfagas
         _sessionNotifiedKeys.add(payloadKey);
-        return;
+        await prefs.setBool(fullKey, true);
+        
+        // Asegurar que los cambios se escriban en disco antes de que el otro Isolate intente leer
+        await prefs.reload(); 
       }
 
-      // Registrar como enviada ANTES de mostrarla para evitar ráfagas
-      _sessionNotifiedKeys.add(payloadKey);
-      await prefs.setBool(fullKey, true);
-      
-      // Asegurar que los cambios se escriban en disco antes de que el otro Isolate intente leer
-      await prefs.reload(); 
+      final AndroidNotificationDetails androidPlatformChannelSpecifics =
+          AndroidNotificationDetails(
+        isAlarm ? 'srecord_danger_channel_v2' : 'srecord_pro_channel_v4', 
+        isAlarm ? 'Alarma de Peligro y Recorte' : 'Comunicados y Alertas Críticas',
+        channelDescription: isAlarm ? 'Canal de ALARMA DE PELIGRO para avisos críticos.' : 'Canal de ALTA PRIORIDAD para comunicados oficiales y avisos críticos.',
+        importance: Importance.max,
+        priority: Priority.max,
+        showWhen: true,
+        playSound: true,
+        sound: isAlarm ? const RawResourceAndroidNotificationSound('danger_alarm') : null,
+        enableVibration: true,
+        styleInformation: bigText != null 
+            ? BigTextStyleInformation(bigText, contentTitle: title, summaryText: "S-RECORD") 
+            : null,
+        category: isAlarm ? AndroidNotificationCategory.alarm : AndroidNotificationCategory.message,
+        icon: '@mipmap/launcher_icon',
+      );
+
+      final NotificationDetails platformChannelSpecifics =
+          NotificationDetails(android: androidPlatformChannelSpecifics);
+
+      await _notificationsPlugin.show(id, title, body, platformChannelSpecifics);
+    } catch (e) {
+      debugPrint("[NOTIFICATION_SERVICE] Error enviando notificación: $e");
     }
-
-    final AndroidNotificationDetails androidPlatformChannelSpecifics =
-        AndroidNotificationDetails(
-      'srecord_pro_channel_v4', 
-      'Comunicados y Alertas Críticas',
-      channelDescription: 'Canal de ALTA PRIORIDAD para comunicados oficiales y avisos críticos.',
-      importance: Importance.max,
-      priority: Priority.max,
-      showWhen: true,
-      playSound: true,
-      enableVibration: true,
-      styleInformation: bigText != null 
-          ? BigTextStyleInformation(bigText, contentTitle: title, summaryText: "S-RECORD") 
-          : null,
-      category: AndroidNotificationCategory.message,
-      icon: '@mipmap/launcher_icon',
-    );
-
-    final NotificationDetails platformChannelSpecifics =
-        NotificationDetails(android: androidPlatformChannelSpecifics);
-
-    await _notificationsPlugin.show(id, title, body, platformChannelSpecifics);
   }
 }

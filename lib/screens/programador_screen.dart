@@ -593,25 +593,92 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
             ),
           ),
           
-          const SizedBox(height: 40),
-          ValueListenableBuilder<double>(
-            valueListenable: _alex.uploadProgress,
-            builder: (context, progress, child) {
+          const SizedBox(height: 30),
+          ValueListenableBuilder<Map<String, dynamic>>(
+            valueListenable: _alex.uploadProgressDetails,
+            builder: (context, details, child) {
               if (!_isUploading) return const SizedBox.shrink();
-              return Column(
-                children: [
-                  LinearProgressIndicator(
-                    value: progress,
-                    backgroundColor: Colors.white10,
-                    color: const Color(0xFF38BDF8),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    "SUBIENDO APK: ${(progress * 100).toStringAsFixed(0)}%",
-                    style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                  const SizedBox(height: 20),
-                ],
+
+              final double progress = (details['progress'] as double? ?? 0.0).clamp(0.0, 1.0);
+              final String mbSent = details['mbSent']?.toString() ?? '0.0';
+              final String mbTotal = details['mbTotal']?.toString() ?? '0.0';
+              final String speed = details['speed']?.toString() ?? '0.0';
+              final String percentStr = (progress * 100).toStringAsFixed(1);
+
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F172A),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.6), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 8, offset: const Offset(0, 4)),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Expanded(
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  "SUBIENDO APK A SUPABASE...",
+                                  style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 0.5),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          "$percentStr%",
+                          style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w900, fontSize: 13, fontFamily: 'monospace'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: LinearProgressIndicator(
+                        value: progress == 0 ? null : progress,
+                        minHeight: 12,
+                        backgroundColor: Colors.white10,
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF38BDF8)),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "Enviado: $mbSent MB / $mbTotal MB",
+                            style: const TextStyle(color: Colors.white70, fontSize: 10, fontFamily: 'monospace'),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          "Velocidad: $speed MB/s",
+                          style: const TextStyle(color: Colors.amberAccent, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               );
             },
           ),
@@ -630,6 +697,149 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
+          ),
+
+          const SizedBox(height: 35),
+          const Divider(color: Colors.white24, thickness: 1),
+          const SizedBox(height: 20),
+
+          // SECCIÓN DE MONITOR EN TIEMPO REAL DEL STORAGE DE SUPABASE
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.cloud_done, color: Color(0xFF10B981), size: 20),
+                  SizedBox(width: 8),
+                  Text("STORAGE EN NUBE (SUPABASE)", style: TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 1)),
+                ],
+              ),
+              IconButton(
+                onPressed: () => setState(() {}),
+                icon: const Icon(Icons.refresh, color: Color(0xFF38BDF8), size: 20),
+                tooltip: "Refrescar Almacenamiento",
+              ),
+            ],
+          ),
+          const Text("Versiones guardadas activas en la base de datos y Storage de Supabase (Máximo 5 retenidas):", style: TextStyle(color: Colors.white38, fontSize: 11)),
+          const SizedBox(height: 15),
+
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _alex.getCloudUpdates(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(color: Color(0xFF38BDF8))));
+              }
+
+              final updates = snapshot.data ?? [];
+              if (updates.isEmpty) {
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: const Center(
+                    child: Text("No hay actualizaciones registradas en Supabase Storage.", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  ),
+                );
+              }
+
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: updates.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final u = updates[index];
+                  final String vName = u['version_name']?.toString() ?? 'N/A';
+                  final String vCode = u['version_code']?.toString() ?? 'N/A';
+                  final String pkg = u['package_name']?.toString() ?? 'N/A';
+                  final String apkUrl = u['apk_url']?.toString() ?? '';
+                  final String createdAt = u['created_at']?.toString() ?? '';
+                  final String notes = u['release_notes']?.toString() ?? '';
+
+                  return Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.3)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF38BDF8).withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text("v$vName (Build $vCode)", style: const TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 12)),
+                                ),
+                                const SizedBox(width: 8),
+                                if (index == 0)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.shade800,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text("ACTIVA EN NUBE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 9)),
+                                  ),
+                              ],
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                              onPressed: () => _confirmDeleteCloudUpdate(u),
+                              tooltip: "Eliminar versión de Supabase",
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text("Paquete: $pkg", style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'monospace')),
+                        if (createdAt.isNotEmpty)
+                          Text("Fecha: ${createdAt.replaceAll('T', ' ').split('.').first}", style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                        if (notes.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text("Notas: $notes", style: const TextStyle(color: Colors.white54, fontSize: 11, fontStyle: FontStyle.italic)),
+                        ],
+                        if (apkUrl.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          InkWell(
+                            onTap: () {
+                              Clipboard.setData(ClipboardData(text: apkUrl));
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enlace APK copiado al portapapeles"), backgroundColor: Colors.teal));
+                            },
+                            child: Row(
+                              children: [
+                                const Icon(Icons.link, color: Color(0xFF38BDF8), size: 14),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    apkUrl,
+                                    style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 10, decoration: TextDecoration.underline),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const Icon(Icons.copy, color: Colors.white38, size: 12),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
           ),
         ],
       ),
@@ -766,6 +976,42 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
           backgroundColor: res['success'] == true ? Colors.green : Colors.orangeAccent,
         ),
       );
+    }
+  }
+
+  Future<void> _confirmDeleteCloudUpdate(Map<String, dynamic> u) async {
+    final String vName = u['version_name']?.toString() ?? '';
+    final String vCode = u['version_code']?.toString() ?? '';
+    final dynamic id = u['id'];
+    final String? apkUrl = u['apk_url']?.toString();
+
+    bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0F172A),
+        title: const Text("ELIMINAR ACTUALIZACIÓN", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+        content: Text("¿Está seguro de eliminar permanentemente la versión v$vName ($vCode) de Supabase Storage y Base de Datos?\n\nEsta acción no se puede deshacer."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("CANCELAR", style: TextStyle(color: Colors.white38))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("SÍ, ELIMINAR"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      bool ok = await _alex.deleteCloudUpdate(id, vCode, apkUrl);
+      if (mounted) {
+        if (ok) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Versión eliminada de Supabase Storage"), backgroundColor: Colors.green));
+          setState(() {});
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error al eliminar versión"), backgroundColor: Colors.redAccent));
+        }
+      }
     }
   }
 

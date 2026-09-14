@@ -15,6 +15,7 @@ import 'package:srecord/services/alex_api.dart';
 import 'package:srecord/services/database_helper.dart';
 import 'package:srecord/services/tiro_service.dart';
 import 'package:srecord/services/recaudacion_service.dart';
+import 'package:srecord/services/notification_service.dart';
 import 'package:srecord/widgets/connection_icon.dart';
 import 'package:srecord/widgets/loteria_icon.dart';
 
@@ -68,7 +69,70 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
   final ScrollController _visorScrollController = ScrollController();
   final ValueNotifier<DateTime> _currentTimeNotifier = ValueNotifier(DateTime.now());
   Timer? _timer;
+  Timer? _alarmTimer;
   Map<String, String>? _lastKnownOpenSession;
+  bool _isAtRisk = false;
+
+  bool _calculateIsAtRisk() {
+    List<Map<String, dynamic>> allJugadas = [
+      ..._bolaItems.value,
+      ..._parleItems.value,
+      ..._centenaItems.value,
+    ];
+    final analysis = RecaudacionService.analyzePlayByPlayCoverage(allJugadas, _limpioTotal.value);
+    return (analysis['recortadas'] as int) > 0;
+  }
+
+  int _fgAlertCount = 0;
+
+  void _triggerRiskNotification() {
+    try {
+      SystemSound.play(SystemSoundType.alert);
+      HapticFeedback.heavyImpact();
+      NotificationService().showNotification(
+        id: 8888,
+        title: "⚠️ ALERTA DE RECORTE",
+        body: "El limpio actual no cubre todas las jugadas. Verifique el banner.",
+        isAlarm: true,
+      );
+    } catch (e) {
+      debugPrint("[S-RECORD] Error enviando alerta de recorte: $e");
+    }
+  }
+
+  void _updateRiskState() {
+    bool atRisk = _calculateIsAtRisk();
+    if (atRisk != _isAtRisk) {
+      if (mounted) {
+        setState(() {
+          _isAtRisk = atRisk;
+        });
+      } else {
+        _isAtRisk = atRisk;
+      }
+      if (_isAtRisk) {
+        _fgAlertCount = 1; // Alerta 1 de 3 (Inmediata)
+        _triggerRiskNotification();
+        _startAlarmTimer();
+      } else {
+        _fgAlertCount = 0;
+        _alarmTimer?.cancel();
+        _alarmTimer = null;
+      }
+    }
+  }
+
+  void _startAlarmTimer() {
+    _alarmTimer?.cancel();
+    _alarmTimer = Timer.periodic(const Duration(hours: 1), (timer) {
+      if (mounted && _isAtRisk && _fgAlertCount < 3) {
+        _fgAlertCount++;
+        _triggerRiskNotification();
+      } else {
+        timer.cancel();
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -98,6 +162,11 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
     });
     TiroService().version.addListener(_calculateTotalPremios);
     TiroService().versionLimites.addListener(_calculateTotalPremios);
+    _bolaItems.addListener(_updateRiskState);
+    _parleItems.addListener(_updateRiskState);
+    _centenaItems.addListener(_updateRiskState);
+    _limpioTotal.addListener(_updateRiskState);
+    _premiosTotal.addListener(_updateRiskState);
   }
 
   void _checkSessionAutoJump() {
@@ -158,7 +227,13 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
     _blinkController.dispose();
     TiroService().version.removeListener(_calculateTotalPremios);
     TiroService().versionLimites.removeListener(_calculateTotalPremios);
+    _bolaItems.removeListener(_updateRiskState);
+    _parleItems.removeListener(_updateRiskState);
+    _centenaItems.removeListener(_updateRiskState);
+    _limpioTotal.removeListener(_updateRiskState);
+    _premiosTotal.removeListener(_updateRiskState);
     _timer?.cancel();
+    _alarmTimer?.cancel();
     _typingTimerRef?.cancel();
     _bolaItems.dispose();
     _parleItems.dispose();
@@ -697,7 +772,7 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
     double topeBola = (_personalTopes["bola_lista"] ?? bankTopeBola).clamp(0, bankTopeBola);
     double topeParle = (_personalTopes["parle_lista"] ?? bankTopeParle).clamp(0, bankTopeParle);
     double topeCentena = (_personalTopes["centena_lista"] ?? bankTopeCentena).clamp(0, bankTopeCentena);
-    List<Map<String, String>> toLista = [], toBote = []; List<String> rejected = []; String tipo = _activeField.value == 0 ? "BOLA" : (_activeField.value == 1 ? "PARLE" : "CENTENA");
+    List<Map<String, String>> toLista = [], toBote = [], rejected = []; String tipo = _activeField.value == 0 ? "BOLA" : (_activeField.value == 1 ? "PARLE" : "CENTENA");
     if (_activeField.value == 1) {
       if (rawNumbers.length < 2) { _showError("Error: PARLE requiere al menos 2 números"); return; }
       double vM = RecaudacionService.extractMoney(raw); List<String> subPairs = _getCombinations(rawNumbers);
@@ -729,16 +804,21 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
             if (fillB > 0) toBote.add({"n": rawNumbers.join('-'), "v": "(${fillB.toStringAsFixed(fillB % 1 == 0 ? 0 : 2)})"});
             double rej = remaining - fillB;
             if (rej > 0.01) {
-        for (String p in subPairs) {
-          rejected.add("$p: \$${rej.toStringAsFixed(rej % 1 == 0 ? 0 : 2)}");
-        }
-      }
+              String sM = rej.toStringAsFixed(rej % 1 == 0 ? 0 : 2);
+              for (String p in subPairs) {
+                rejected.add({"n": p, "v": "($sM)"});
+              }
+            }
           } else {
             // Si el Bote tiene historial, desglosamos el remanente
             for (String pair in subPairs) {
               double acB = await _getAcumulado(pair, "PARLE", destino: "BOTE"), dispB = (topeBoteP - acB).clamp(0.0, topeBoteP), fillB = remaining < dispB ? remaining : dispB;
               if (fillB > 0) toBote.add({"n": pair, "v": "(${fillB.toStringAsFixed(fillB % 1 == 0 ? 0 : 2)})"});
-              double rej = remaining - fillB; if (rej > 0.01) rejected.add("$pair: \$${rej.toStringAsFixed(rej % 1 == 0 ? 0 : 2)}");
+              double rej = remaining - fillB; 
+              if (rej > 0.01) {
+                String sM = rej.toStringAsFixed(rej % 1 == 0 ? 0 : 2);
+                rejected.add({"n": pair, "v": "($sM)"});
+              }
             }
           }
         }
@@ -754,7 +834,11 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
             if (remaining > 0.01) {
               double acB = await _getAcumulado(pair, "PARLE", destino: "BOTE"), topeBoteP = (_personalTopes["parle_bote"] ?? _parseLimit(_currentPlan["tope_bote_parlet"])).clamp(0, _parseLimit(_currentPlan["tope_bote_parlet"])), dispB = (topeBoteP - acB).clamp(0.0, topeBoteP), fillB = remaining < dispB ? remaining : dispB;
               if (fillB > 0) toBote.add({"n": pair, "v": "(${fillB.toStringAsFixed(fillB % 1 == 0 ? 0 : 2)})"});
-              double rejectedAmount = remaining - fillB; if (rejectedAmount > 0.01) rejected.add("$pair: \$${rejectedAmount.toStringAsFixed(rejectedAmount % 1 == 0 ? 0 : 2)} (Excede Bote)");
+              double rejectedAmount = remaining - fillB; 
+              if (rejectedAmount > 0.01) {
+                String sM = rejectedAmount.toStringAsFixed(rejectedAmount % 1 == 0 ? 0 : 2);
+                rejected.add({"n": pair, "v": "($sM)"});
+              }
             }
           }
         }
@@ -799,8 +883,19 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
               toBote.add({"n": nL, "v": "($sF)($sC)"});
             }
             
-            if (fR - fB > 0.01) rejected.add("$nL FIJO: \$${(fR - fB).toStringAsFixed((fR - fB) % 1 == 0 ? 0 : 2)} (Excede Bote)");
-            if (cR - cB > 0.01) rejected.add("$nL CORRIDO: \$${(cR - cB).toStringAsFixed((cR - cB) % 1 == 0 ? 0 : 2)} (Excede Bote)");
+            double remF = fR - fB;
+            double remC = cR - cB;
+            if (remF > 0.01 || remC > 0.01) {
+              String sF = vF > 0 ? remF.toStringAsFixed(remF % 1 == 0 ? 0 : 2) : 'X';
+              String sC = vC > 0 ? remC.toStringAsFixed(remC % 1 == 0 ? 0 : 2) : 'X';
+              if (vF > 0 && vC > 0) {
+                rejected.add({"n": nL, "v": "($sF)($sC)"});
+              } else if (vF > 0) {
+                rejected.add({"n": nL, "v": "($sF)"});
+              } else if (vC > 0) {
+                rejected.add({"n": nL, "v": "(X)($sC)"});
+              }
+            }
           }
         } else {
           vM = RecaudacionService.extractMoney(raw);
@@ -818,7 +913,10 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
                    mB = mR.clamp(0.0, dispB);
             
             if (mB > 0.01) toBote.add({"n": nL, "v": "(${mB.toStringAsFixed(mB % 1 == 0 ? 0 : 2)})"});
-            if (mR - mB > 0.01) rejected.add("$nL CENTENA: \$${(mR - mB).toStringAsFixed((mR - mB) % 1 == 0 ? 0 : 2)} (Excede Bote)");
+            if (mR - mB > 0.01) {
+              String sM = (mR - mB).toStringAsFixed((mR - mB) % 1 == 0 ? 0 : 2);
+              rejected.add({"n": nL, "v": "($sM)"});
+            }
           }
         }
       }
@@ -831,7 +929,7 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
         for (var x in toLista) {
           content.add(Padding(
             padding: const EdgeInsets.only(left: 8.0, top: 4.0),
-            child: _jugadaVerticalDisplay(x['n'] ?? '', x['v'] ?? '', const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+            child: _jugadaVerticalDisplay(x['n'] ?? '', x['v'] ?? '', const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87), isParle: tipo == "PARLE"),
           ));
         }
         content.add(const SizedBox(height: 10));
@@ -841,20 +939,34 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
         for (var x in toBote) {
           content.add(Padding(
             padding: const EdgeInsets.only(left: 8.0, top: 4.0),
-            child: _jugadaVerticalDisplay(x['n'] ?? '', x['v'] ?? '', const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+            child: _jugadaVerticalDisplay(x['n'] ?? '', x['v'] ?? '', const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87), isParle: tipo == "PARLE"),
           ));
         }
         content.add(const SizedBox(height: 10));
       }
       if (rejected.isNotEmpty) {
         content.add(const Text("RECHAZADO (Excede Bote):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)));
-        for (var s in rejected) {
-          content.add(Text(" • $s"));
+        for (var x in rejected) {
+          content.add(Padding(
+            padding: const EdgeInsets.only(left: 8.0, top: 4.0),
+            child: _jugadaVerticalDisplay(x['n'] ?? '', x['v'] ?? '', const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.red), isParle: tipo == "PARLE"),
+          ));
         }
         content.add(const SizedBox(height: 12));
         content.add(const Text("IMPORTANTE: El excedente debe botarlo fuera.", style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold)));
       }
-      bool? confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(title: const Text("AVISO DE TOPE"), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: content)), actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("CANCELAR")), TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("ACEPTAR"))]));
+      bool? confirm = await showDialog<bool>(
+        context: context, 
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text("AVISO DE TOPE"), 
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: content)), 
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("CANCELAR")), 
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("ACEPTAR"))
+          ]
+        )
+      );
       if (confirm != true) return;
     }
     final bancoId = await Alex().getActiveBancoId() ?? "UNKNOWN";
@@ -886,24 +998,23 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
 
   void _refreshItems() async {
     final bancoId = await Alex().getActiveBancoId() ?? "UNKNOWN";
-    final color = await Alex().getRegentColorObj();
-    if (mounted) setState(() { _regentColor = color; });
-    debugPrint("[S-RECORD DEBUG] Cargando jugadas for: PIN=$_listeroPin, Seccion=$_activeSeccion, Fecha=$_activeFecha, Loteria=$_activeLoteria, Banco=$bancoId");
     
-    var b = await _db.getJugadas(_listeroPin, "BOLA", destino: "LISTA", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria);
-    var p = await _db.getJugadas(_listeroPin, "PARLE", destino: "LISTA", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria);
-    var c = await _db.getJugadas(_listeroPin, "CENTENA", destino: "LISTA", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria);
-    
-    // FALLBACK: Si no hay nada, intentar una búsqueda más amplia (para depuración)
-    if (b.isEmpty && p.isEmpty && c.isEmpty && _listeroPin.isNotEmpty) {
-       debugPrint("[S-RECORD DEBUG] Sin resultados. Re-intentando búsqueda sin filtro de Banco...");
-       b = await _db.getJugadas(_listeroPin, "BOLA", destino: "LISTA", seccion: _activeSeccion, fecha: _activeFecha, loteria: _activeLoteria);
-       p = await _db.getJugadas(_listeroPin, "PARLE", destino: "LISTA", seccion: _activeSeccion, fecha: _activeFecha, loteria: _activeLoteria);
-       c = await _db.getJugadas(_listeroPin, "CENTENA", destino: "LISTA", seccion: _activeSeccion, fecha: _activeFecha, loteria: _activeLoteria);
-    }
+    // Carga paralela ultrarrápida
+    final results = await Future.wait([
+      _db.getJugadas(_listeroPin, "BOLA", destino: "LISTA", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria),
+      _db.getJugadas(_listeroPin, "PARLE", destino: "LISTA", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria),
+      _db.getJugadas(_listeroPin, "CENTENA", destino: "LISTA", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria),
+      Alex().getRegentColorObj(),
+    ]);
+
+    var b = results[0] as List<Map<String, dynamic>>;
+    var p = results[1] as List<Map<String, dynamic>>;
+    var c = results[2] as List<Map<String, dynamic>>;
+    final color = results[3] as Color;
 
     if (mounted) {
-      // DEDUPLICACIÓN POR UUID (Caso de migración de banco)
+      setState(() { _regentColor = color; });
+
       final Set<String> uuids = {};
       final List<Map<String, dynamic>> cleanB = [], cleanP = [], cleanC = [];
       
@@ -914,7 +1025,6 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
       _bolaItems.value = cleanB.reversed.toList();
       _parleItems.value = cleanP.reversed.toList();
       _centenaItems.value = cleanC.reversed.toList();
-      debugPrint("[S-RECORD DEBUG] Cargados (Únicos): B=${cleanB.length}, P=${cleanP.length}, C=${cleanC.length}");
     }
   }
 
@@ -1126,13 +1236,21 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
                 ValueListenableBuilder<int>(
                     valueListenable: _activeField,
                     builder: (context, act, _) => Container(
-                        padding: const EdgeInsets.only(top: 8, bottom: 8, left: 0, right: 4),
-                        color: Colors.blue.shade50,
+                        padding: const EdgeInsets.only(top: 3, bottom: 3, left: 0, right: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          border: const Border(
+                            top: BorderSide(color: Colors.black, width: 1.5),
+                            bottom: BorderSide(color: Colors.black, width: 2.0),
+                            left: BorderSide(color: Colors.black, width: 2.5),
+                            right: BorderSide(color: Colors.black, width: 2.5),
+                          ),
+                        ),
                         child: Row(children: [
                           _headerCell('BOLA', act == 0, 18),
-                          Container(width: 1.5, height: 15, color: Colors.blue.withValues(alpha: 0.5)),
+                          Container(width: 2.5, height: 15, color: Colors.black),
                           _headerCell('PARLE', act == 1, 11),
-                          Container(width: 1.5, height: 15, color: Colors.blue.withValues(alpha: 0.5)),
+                          Container(width: 2.5, height: 15, color: Colors.black),
                           _headerCell('CENTENA', act == 2, 11)
                         ]))),
                 Expanded(
@@ -1142,9 +1260,9 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
                           padding: const EdgeInsets.only(left: 0, right: 4),
                           child: Row(children: [
                             const Expanded(flex: 18, child: SizedBox()),
-                            Container(width: 1.5, color: Colors.blue.withValues(alpha: 0.2)),
+                            Container(width: 2.0, color: Colors.black),
                             const Expanded(flex: 11, child: SizedBox()),
-                            Container(width: 1.5, color: Colors.blue.withValues(alpha: 0.2)),
+                            Container(width: 2.0, color: Colors.black),
                             const Expanded(flex: 11, child: SizedBox())
                           ]))),
                   Padding(
@@ -1153,16 +1271,16 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _historyColumn(_bolaItems, 0, 18),
-                            const SizedBox(width: 1),
+                            Container(width: 2.0, color: Colors.black),
                             _historyColumn(_parleItems, 1, 11),
-                            const SizedBox(width: 1),
+                            Container(width: 2.0, color: Colors.black),
                             _historyColumn(_centenaItems, 2, 11)
                           ])),
                 ])),
                 _buildTiroPublicadoPanel(),
               ])),
           Container(
-              padding: const EdgeInsets.only(bottom: 5),
+              padding: EdgeInsets.zero,
               decoration: BoxDecoration(
                 color: Colors.blue.shade900,
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(25)), 
@@ -1170,7 +1288,7 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 if (!readOnly) _buildVisor(),
-                if (!readOnly) ...[_buildInputSelectors(), _buildNumericKeypad()] 
+                if (!readOnly) ...[_buildInputSelectors(), _buildListeroPayoutInfoBanner(), _buildNumericKeypad()] 
                 else Padding(padding: const EdgeInsets.only(top: 12, bottom: 20, left: 16, right: 16), child: ListenableBuilder(listenable: Listenable.merge([_limpioTotal, _premiosTotal]), builder: (context, _) {
                             double lim = _limpioTotal.value;
                             double pr = _premiosTotal.value, bal = lim - pr;
@@ -1230,7 +1348,7 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
+      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 10),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: readOnly
@@ -1534,15 +1652,36 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
   Widget _historyColumn(ValueNotifier<List<Map<String, dynamic>>> n, int col, int f) => Expanded(flex: f, child: ValueListenableBuilder<int>(valueListenable: _activeField, builder: (ctx, act, _) => ValueListenableBuilder<List<Map<String, dynamic>>>(valueListenable: n, builder: (ctx, list, _) => ListView.builder(controller: col == 0 ? _bolaScroll : (col == 1 ? _parleScroll : _centenaScroll), padding: EdgeInsets.zero, itemCount: list.length, itemBuilder: (ctx, idx) {
     final j = list[idx]; final it = j['valor'] as String, id = j['id'] as int; bool sel = _selectedIds.contains(id), rec = (_lastAddedCol == col && idx < _lastAddedCount);
     bool isWinner = (_itemPrizes[id] ?? 0) > 0;
-    final statusColor = _getSyncStatusColor(j);
+    
+    final bool isValid = RecaudacionService.isJugadaValida(j);
+    final int syncStatus = j['sync'] as int? ?? 0;
+    
+    Color rowBgColor = Colors.transparent;
+    if (sel) {
+      rowBgColor = Colors.blue.withValues(alpha: 0.35);
+    } else if (!isValid) {
+      rowBgColor = Colors.red.withValues(alpha: 0.4); // Fondo rojo intenso
+    } else if (syncStatus == 1) {
+      rowBgColor = Colors.orange.withValues(alpha: 0.4); // Fondo naranja intenso
+    } else {
+      rowBgColor = Colors.green.withValues(alpha: 0.35); // Fondo verde intenso
+    }
+
+    Color textColor = sel ? Colors.blue.shade900 : (isWinner ? Colors.blue.shade800 : Colors.black87);
+
     return GestureDetector(
       onTap: () { if (_selectedIds.isNotEmpty) setState(() { if (sel) { _selectedIds.remove(id); } else { _selectedIds.add(id); } }); }, 
       onLongPress: () => setState(() { if (sel) { _selectedIds.remove(id); } else { _selectedIds.add(id); } }), 
       child: Container(
         width: double.infinity, 
         decoration: BoxDecoration(
-          color: sel ? Colors.blue.withValues(alpha: 0.25) : (act == col ? Colors.blue.withValues(alpha: 0.05) : Colors.transparent), 
-          border: Border(bottom: BorderSide(color: sel ? Colors.lightBlue : (rec ? Colors.orange : Colors.blue.shade100), width: 1.2))
+          color: rowBgColor, 
+          border: const Border(
+            top: BorderSide(color: Colors.black, width: 1.0),
+            bottom: BorderSide(color: Colors.black, width: 1.5),
+            left: BorderSide(color: Colors.black, width: 2.5),
+            right: BorderSide(color: Colors.black, width: 2.5),
+          )
         ), 
         child: Row(children: [
           if (rec) const Icon(Icons.arrow_right, color: Colors.orange, size: 20), 
@@ -1554,7 +1693,7 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
                 builder: (context, child) => _jugadaVerticalDisplay(
                   it.split('(').first, 
                   it.contains('(') ? it.substring(it.indexOf('(')) : '', 
-                  TextStyle(fontSize: col == 0 ? 15 : 13, fontWeight: FontWeight.bold, decoration: !RecaudacionService.isJugadaValida(j) ? TextDecoration.lineThrough : null, color: sel ? Colors.blue.shade900 : (isWinner ? (Color.lerp(Colors.blueAccent, Colors.lightBlueAccent, _blinkController.value)) : statusColor)), 
+                  TextStyle(fontSize: col == 0 ? 15 : 13, fontWeight: FontWeight.bold, decoration: !isValid ? TextDecoration.lineThrough : null, color: isWinner ? (Color.lerp(Colors.blueAccent, Colors.lightBlueAccent, _blinkController.value)) : textColor), 
                   isParle: col == 1,
                 ),
               ),
@@ -1636,8 +1775,8 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
 
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 0),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0.5),
       decoration: BoxDecoration(
         color: isGeorgia ? Colors.orange.shade50 : Colors.blue.shade50,
         borderRadius: BorderRadius.circular(8),
@@ -1649,29 +1788,6 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
           ValueNotifier<String> n = act == 0 ? _bolaInput : (act == 1 ? _parleInput : _centenaInput);
           return Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isGeorgia ? Colors.orange.shade800 : Colors.blue.shade800,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    LoteriaIcon(
-                      loteria: _activeLoteria,
-                      size: 12,
-                      borderRadius: 2,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      isGeorgia ? "GA" : "FL",
-                      style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 10),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
               Text(
                 act == 0 ? 'BOLA' : (act == 1 ? 'PARLE' : 'CENTENA'),
                 style: TextStyle(fontWeight: FontWeight.bold, color: themeColor, fontSize: 11),
@@ -1718,7 +1834,7 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
     final sendColor = isGeorgia ? Colors.orange.shade800 : _regentColor;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 0),
       child: Row(
         children: [
           _iSel(0, 'BOLA'),
@@ -1732,12 +1848,95 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
             style: ElevatedButton.styleFrom(
               backgroundColor: sendColor,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
+              padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
             ),
             child: const Icon(Icons.send, color: Colors.white, size: 18),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildListeroPayoutInfoBanner() {
+    return ValueListenableBuilder<double>(
+      valueListenable: _limpioTotal,
+      builder: (context, limpio, _) {
+        return ListenableBuilder(
+          listenable: Listenable.merge([_bolaItems, _parleItems, _centenaItems]),
+          builder: (context, _) {
+            List<Map<String, dynamic>> allJugadas = [
+              ..._bolaItems.value,
+              ..._parleItems.value,
+              ..._centenaItems.value,
+            ];
+            
+            final analysis = RecaudacionService.analyzePlayByPlayCoverage(allJugadas, limpio);
+            int total = analysis['total'] as int;
+            int recortadas = analysis['recortadas'] as int;
+            List<String> detalles = List<String>.from(analysis['detalles'] ?? []);
+            bool isAtRisk = recortadas > 0;
+
+            String alertText = "✅ PAGO COMPLETO (100%)";
+            if (total == 0) {
+              alertText = "ℹ️ INGRESE JUGADAS";
+            } else if (isAtRisk) {
+              alertText = "⚠️ RECORTE EN: ${detalles.join(', ')}";
+            }
+
+            return AnimatedBuilder(
+              animation: _blinkController,
+              builder: (context, child) {
+                final alertBgColor = isAtRisk 
+                    ? Color.lerp(Colors.red.shade900, Colors.amber.shade900, _blinkController.value)!
+                    : const Color(0xFF1E293B);
+                final alertBorderColor = isAtRisk
+                    ? Color.lerp(Colors.amberAccent, Colors.redAccent, _blinkController.value)!
+                    : const Color(0xFF38BDF8);
+
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: alertBgColor,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: alertBorderColor, width: isAtRisk ? 2.0 : 1.2),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.3), offset: const Offset(0, 2), blurRadius: 4),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(isAtRisk ? Icons.warning_amber_rounded : Icons.verified_rounded, color: isAtRisk ? Colors.amberAccent : const Color(0xFF38BDF8), size: 14),
+                          const SizedBox(width: 6),
+                          Text(
+                            "LIMPIO: \$${RecaudacionService.formatMoney(limpio)}",
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10, fontFamily: 'monospace'),
+                          ),
+                        ],
+                      ),
+                      Flexible(
+                        child: Text(
+                          alertText,
+                          style: TextStyle(
+                            color: isAtRisk ? Colors.amberAccent : Colors.greenAccent, 
+                            fontWeight: FontWeight.w900, 
+                            fontSize: 9.5,
+                            letterSpacing: 0.5
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1751,7 +1950,7 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
           onTap: () => _activeField.value = i,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(vertical: 6),
+            padding: const EdgeInsets.symmetric(vertical: 4),
             decoration: BoxDecoration(
               color: act == i ? activeColor : Colors.white24,
               borderRadius: BorderRadius.circular(8),
@@ -1771,7 +1970,7 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
   Widget _buildNumericKeypad() {
     const List<String> ks = ['7', '8', '9', '4', '5', '6', '1', '2', '3', 'AL', '0', '.'];
     return Padding(
-      padding: const EdgeInsets.only(left: 5, right: 10, top: 2, bottom: 2),
+      padding: const EdgeInsets.only(left: 5, right: 10, top: 0, bottom: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -1783,9 +1982,9 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
               padding: const EdgeInsets.only(right: 10),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
-                mainAxisExtent: 48,
-                mainAxisSpacing: 6,
-                crossAxisSpacing: 6,
+                mainAxisExtent: 49,
+                mainAxisSpacing: 3,
+                crossAxisSpacing: 3,
               ),
               itemCount: ks.length,
               itemBuilder: (ctx, idx) => _buildKeyBtn(ks[idx]),

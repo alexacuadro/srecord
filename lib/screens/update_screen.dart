@@ -116,7 +116,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
     });
 
     try {
-      await Alex().checkAppUpdate();
+      await Alex().checkAppUpdate(force: true);
       final updateData = Alex().updateRequired.value;
       
       if (mounted) {

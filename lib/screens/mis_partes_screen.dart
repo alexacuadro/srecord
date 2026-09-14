@@ -130,7 +130,7 @@ class _MisPartesScreenState extends State<MisPartesScreen> {
       margin: const EdgeInsets.only(bottom: 16),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: Colors.white38, width: 1.5)
+        side: const BorderSide(color: Colors.black, width: 2.0)
       ),
       child: Container(
         decoration: BoxDecoration(
@@ -172,7 +172,7 @@ class _MisPartesScreenState extends State<MisPartesScreen> {
               ),
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
-                child: Divider(height: 1),
+                child: Divider(color: Colors.black, height: 1, thickness: 1.5),
               ),
               if (listeroGana)
                 _smartSummary("¡FELICIDADES! HAS GANADO \$${RecaudacionService.formatMoney(balance.abs())} EN ESTE TIRO.", Colors.green)
@@ -379,7 +379,12 @@ class _MisPartesScreenState extends State<MisPartesScreen> {
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: resultColor.withValues(alpha: 0.3)),
+        border: const Border(
+          top: BorderSide(color: Colors.black, width: 1.0),
+          bottom: BorderSide(color: Colors.black, width: 1.0),
+          left: BorderSide(color: Colors.black, width: 2.5),
+          right: BorderSide(color: Colors.black, width: 2.5),
+        ),
       ),
       child: Row(
         children: [

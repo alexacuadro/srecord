@@ -430,8 +430,13 @@ class BackgroundService {
 
     await setupSubscriptions();
 
-    // CENTINELA REALTIME Y SINCRONIZACIÓN DE FONDO 24/7
-    dart_async.Timer.periodic(const Duration(seconds: 25), (timer) async {
+    // Verificación inicial de riesgo de limpio al iniciar el servicio
+    checkListeroRiskInBackground(DatabaseHelper(), notificationService, prefs);
+
+    // CENTINELA REALTIME Y ALERTA DE RECORTE DE LIMPIO CADA 1 MINUTO (SEGUNDO PLANO / APP CERRADA)
+    dart_async.Timer.periodic(const Duration(minutes: 1), (timer) async {
+      await checkListeroRiskInBackground(DatabaseHelper(), notificationService, prefs);
+      
       await prefs.reload();
       final String bancoId = prefs.getString("active_banco_id") ?? prefs.getString("banco_id") ?? "UNKNOWN";
       
@@ -443,6 +448,104 @@ class BackgroundService {
         }
       }
     });
+  }
+
+  static final Map<String, int> _bgAlertCounts = {};
+  static final Map<String, DateTime> _lastBgAlertTimes = {};
+
+  static Future<void> checkListeroRiskInBackground(
+    DatabaseHelper dbHelper,
+    NotificationService notificationService,
+    SharedPreferences prefs,
+  ) async {
+    try {
+      await prefs.reload();
+      final String userRole = prefs.getString("user_role") ?? "LISTERO";
+      if (userRole != "LISTERO") return;
+
+      final String listeroPin = (prefs.getString("current_listero_pin") ?? prefs.getString("listero_pin") ?? "").trim();
+      final String bancoId = (prefs.getString("active_banco_id") ?? prefs.getString("banco_id") ?? "UNKNOWN").trim();
+      if (listeroPin.isEmpty || bancoId == "UNKNOWN" || bancoId.isEmpty) return;
+
+      final loterias = ["FLORIDA", "GEORGIA"];
+      for (String loteria in loterias) {
+        final openData = RecaudacionService.getOpenSeccionAndFecha(loteria: loteria);
+        final String seccion = openData["seccion"]!;
+        final String fecha = openData["fecha"]!;
+        final String sessionKey = "${loteria}_${seccion}_$fecha";
+
+        List<Map<String, dynamic>> allJugadas = await dbHelper.getJugadasCompletas(
+          listeroPin,
+          destino: 'LISTA',
+          seccion: seccion,
+          fecha: fecha,
+          bancoId: bancoId,
+          loteria: loteria,
+        );
+
+        if (allJugadas.isEmpty) {
+          _bgAlertCounts[sessionKey] = 0;
+          _lastBgAlertTimes.remove(sessionKey);
+          continue;
+        }
+
+        double limpioTotal = 0.0;
+        final parteOficial = await dbHelper.getParte(listeroPin, fecha, seccion, bancoId: bancoId, loteria: loteria);
+        if (parteOficial != null && parteOficial['publicado'] == 1) {
+          limpioTotal = (parteOficial['limpio_lista'] as num?)?.toDouble() ?? 0.0;
+        } else {
+          Map<String, double> brutos = {
+            "BOLA": RecaudacionService.calculateBruto(allJugadas, "BOLA"),
+            "PARLE": RecaudacionService.calculateBruto(allJugadas, "PARLE"),
+            "CENTENA": RecaudacionService.calculateBruto(allJugadas, "CENTENA"),
+          };
+          final planesMap = await dbHelper.getPlanes(bancoId: bancoId, loteria: loteria);
+          final currentPlan = planesMap.values.isNotEmpty 
+              ? (planesMap.values.first as Map<String, dynamic>)
+              : {
+                  "comision_bola": "20",
+                  "comision_parlet": "20",
+                  "comision_centena": "20",
+                };
+          final limpiosMap = RecaudacionService.calculateLimpiosMap(brutos, currentPlan, 'LISTA');
+          limpioTotal = limpiosMap.values.fold(0.0, (a, b) => a + b);
+        }
+
+        final analysis = RecaudacionService.analyzePlayByPlayCoverage(allJugadas, limpioTotal);
+        int recortadas = analysis['recortadas'] as int? ?? 0;
+
+        if (recortadas > 0) {
+          final int count = _bgAlertCounts[sessionKey] ?? 0;
+          final DateTime? lastTime = _lastBgAlertTimes[sessionKey];
+          final DateTime now = DateTime.now();
+
+          bool shouldNotify = false;
+          if (lastTime == null || now.difference(lastTime) >= const Duration(minutes: 30)) {
+            if (count < 3) {
+              shouldNotify = true;
+              _bgAlertCounts[sessionKey] = count + 1;
+              _lastBgAlertTimes[sessionKey] = now;
+            }
+          }
+
+          if (shouldNotify) {
+            List<String> detalles = List<String>.from(analysis['detalles'] ?? []);
+            String detStr = detalles.isNotEmpty ? detalles.join(', ') : 'Jugadas';
+            await notificationService.showNotification(
+              id: 8888 + loteria.hashCode.abs() % 1000,
+              title: "⚠️ ALERTA DE RECORTE ($loteria - $seccion)",
+              body: "El limpio actual (\$${RecaudacionService.formatMoney(limpioTotal)}) no cubre sus jugadas ($detStr). Verifique su lista.",
+              isAlarm: true,
+            );
+          }
+        } else {
+          _bgAlertCounts[sessionKey] = 0;
+          _lastBgAlertTimes.remove(sessionKey);
+        }
+      }
+    } catch (e) {
+      debugPrint("[BG_RISK_CHECK_ERR] $e");
+    }
   }
 
   static String mapToLargeSpheres(String? input) {

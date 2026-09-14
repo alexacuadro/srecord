@@ -624,8 +624,9 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
         
         double rejectedAmount = vM - fillB;
         if (rejectedAmount > 0.01) {
+          String sM = rejectedAmount.toStringAsFixed(rejectedAmount % 1 == 0 ? 0 : 2);
           for (String pair in subPairs) {
-            btd.add("$pair: \$${rejectedAmount.toStringAsFixed(rejectedAmount % 1 == 0 ? 0 : 2)} (Excede tope Bote)");
+            btd.add("$pair($sM)");
           }
         }
       } else {
@@ -648,7 +649,10 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
               toB.add({"n": pairKey, "v": "(${fillB.toStringAsFixed(fillB % 1 == 0 ? 0 : 2)})"});
               pairVM -= fillB;
             }
-            if (pairVM > 0.01) btd.add("$pairKey: \$${pairVM.toStringAsFixed(pairVM % 1 == 0 ? 0 : 2)} (Excede tope Bote)");
+            if (pairVM > 0.01) {
+              String sM = pairVM.toStringAsFixed(pairVM % 1 == 0 ? 0 : 2);
+              btd.add("$pairKey($sM)");
+            }
           }
         }
       }
@@ -690,7 +694,17 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
               String sF = (vFB > 0) ? fB.toStringAsFixed(fB % 1 == 0 ? 0 : 2) : 'X', sC = (vCB > 0) ? cB.toStringAsFixed(cB % 1 == 0 ? 0 : 2) : 'X';
               if ((fB - vFB).abs() < 0.01 && (cB - vCB).abs() < 0.01) { canToB.add(nL); valB = "($sF)($sC)"; } else { toB.add({"n": nL, "v": "($sF)($sC)"}); }
             }
-            if (fT > 0) btd.add("$nL FIJO: \$$fT"); if (cT > 0) btd.add("$nL CORRIDO: \$$cT");
+            if (fT > 0 || cT > 0) {
+              String sF = vFB > 0 ? fT.toStringAsFixed(fT % 1 == 0 ? 0 : 2) : 'X';
+              String sC = vCB > 0 ? cT.toStringAsFixed(cT % 1 == 0 ? 0 : 2) : 'X';
+              if (vFB > 0 && vCB > 0) {
+                btd.add("$nL($sF)($sC)");
+              } else if (vFB > 0) {
+                btd.add("$nL($sF)");
+              } else if (vCB > 0) {
+                btd.add("$nL(X)($sC)");
+              }
+            }
           } else if (_activeField.value == 2) {
             double vMB = double.tryParse(RegExp(r'\((\d+\.?\d*)\)').firstMatch(suffix)?.group(1) ?? '0') ?? 0;
             double aM = await _getAcumulado(nL, "CENTENA");
@@ -699,7 +713,10 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
               String sMB = mB.toStringAsFixed(mB % 1 == 0 ? 0 : 2);
               if ((mB - vMB).abs() < 0.01) { canToB.add(nL); valB = "($sMB)"; } else { toB.add({"n": nL, "v": "($sMB)"}); }
             }
-            if (mT > 0) btd.add("$nL CENTENA: \$$mT");
+            if (mT > 0) {
+              String sM = mT.toStringAsFixed(mT % 1 == 0 ? 0 : 2);
+              btd.add("$nL($sM)");
+            }
           }
         }
         if (canToB.isNotEmpty) toB.add({"n": canToB.join('-'), "v": valB});
@@ -712,13 +729,23 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
       if (toB.isNotEmpty) {
         rows.add(const Text("Aceptado en el BOTE:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)));
         for (var x in toB) {
-          rows.add(Padding(padding: const EdgeInsets.only(left: 8.0), child: Text("• ${x['n']}${x['v']}")));
+          rows.add(Padding(
+            padding: const EdgeInsets.only(left: 8.0, top: 4.0),
+            child: (tipo == "PARLE") 
+              ? _parleTile("${x['n']}${x['v']}", false, false, false, Colors.black87, false)
+              : _jugadaDisplay("${x['n']}${x['v']}", const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          ));
         }
         rows.add(const SizedBox(height: 12));
       }
       rows.add(const Text("RECHAZADO (Excede tope Bote):", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)));
       for (var s in btd) {
-        rows.add(Padding(padding: const EdgeInsets.only(left: 8.0), child: Text("• $s")));
+        rows.add(Padding(
+          padding: const EdgeInsets.only(left: 8.0, top: 4.0),
+          child: (tipo == "PARLE")
+            ? _parleTile(s, false, false, false, Colors.red, false)
+            : _jugadaDisplay(s, const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.red)),
+        ));
       }
       rows.add(const SizedBox(height: 12));
       rows.add(const Text("IMPORTANTE: El excedente debe botarlo fuera de la aplicación.", style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold)));
@@ -745,22 +772,23 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
 
   void _refreshItems() async {
     final bancoId = await Alex().getActiveBancoId() ?? "UNKNOWN";
-    final color = await Alex().getRegentColorObj();
-    if (mounted) setState(() { _regentColor = color; });
-    debugPrint("[S-RECORD BOTE] Cargando jugadas for: PIN=$_listeroPin, Seccion=$_activeSeccion, Fecha=$_activeFecha, Loteria=$_activeLoteria, Banco=$bancoId");
     
-    var b = await _db.getJugadas(_listeroPin, "BOLA", destino: "BOTE", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria);
-    var p = await _db.getJugadas(_listeroPin, "PARLE", destino: "BOTE", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria);
-    var c = await _db.getJugadas(_listeroPin, "CENTENA", destino: "BOTE", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria);
-    
-    if (b.isEmpty && p.isEmpty && c.isEmpty && _listeroPin.isNotEmpty) {
-       debugPrint("[S-RECORD BOTE] Sin resultados. Re-intentando búsqueda global...");
-       b = await _db.getJugadas(_listeroPin, "BOLA", destino: "BOTE", seccion: _activeSeccion, fecha: _activeFecha, loteria: _activeLoteria);
-       p = await _db.getJugadas(_listeroPin, "PARLE", destino: "BOTE", seccion: _activeSeccion, fecha: _activeFecha, loteria: _activeLoteria);
-       c = await _db.getJugadas(_listeroPin, "CENTENA", destino: "BOTE", seccion: _activeSeccion, fecha: _activeFecha, loteria: _activeLoteria);
-    }
+    // Carga paralela ultrarrápida
+    final results = await Future.wait([
+      _db.getJugadas(_listeroPin, "BOLA", destino: "BOTE", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria),
+      _db.getJugadas(_listeroPin, "PARLE", destino: "BOTE", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria),
+      _db.getJugadas(_listeroPin, "CENTENA", destino: "BOTE", seccion: _activeSeccion, fecha: _activeFecha, bancoId: bancoId, loteria: _activeLoteria),
+      Alex().getRegentColorObj(),
+    ]);
+
+    var b = results[0] as List<Map<String, dynamic>>;
+    var p = results[1] as List<Map<String, dynamic>>;
+    var c = results[2] as List<Map<String, dynamic>>;
+    final color = results[3] as Color;
 
     if (mounted) {
+      setState(() { _regentColor = color; });
+
       final Set<String> uuids = {};
       final List<Map<String, dynamic>> cleanB = [], cleanP = [], cleanC = [];
       
@@ -771,7 +799,6 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
       _bolaItems.value = cleanB.reversed.toList();
       _parleItems.value = cleanP.reversed.toList();
       _centenaItems.value = cleanC.reversed.toList();
-      debugPrint("[S-RECORD BOTE] Cargados (Únicos): B=${cleanB.length}, P=${cleanP.length}, C=${cleanC.length}");
     }
   }
 
@@ -1010,13 +1037,21 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
                 ValueListenableBuilder<int>(
                     valueListenable: _activeField,
                     builder: (context, act, _) => Container(
-                        padding: const EdgeInsets.only(top: 8, bottom: 8, left: 0, right: 4),
-                        color: Colors.red.shade50,
+                        padding: const EdgeInsets.only(top: 3, bottom: 3, left: 0, right: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          border: const Border(
+                            top: BorderSide(color: Colors.black, width: 1.5),
+                            bottom: BorderSide(color: Colors.black, width: 2.0),
+                            left: BorderSide(color: Colors.black, width: 2.5),
+                            right: BorderSide(color: Colors.black, width: 2.5),
+                          ),
+                        ),
                         child: Row(children: [
                           _headerCell('BOLA', act == 0, 18),
-                          Container(width: 1.5, height: 15, color: Colors.red.withValues(alpha: 0.5)),
+                          Container(width: 2.5, height: 15, color: Colors.black),
                           _headerCell('PARLE', act == 1, 11),
-                          Container(width: 1.5, height: 15, color: Colors.red.withValues(alpha: 0.5)),
+                          Container(width: 2.5, height: 15, color: Colors.black),
                           _headerCell('CENTENA', act == 2, 11)
                         ]))),
                 Expanded(
@@ -1026,9 +1061,9 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
                           padding: const EdgeInsets.only(left: 0, right: 4),
                           child: Row(children: [
                             const Expanded(flex: 18, child: SizedBox()),
-                            Container(width: 1.5, color: Colors.red.withValues(alpha: 0.2)),
+                            Container(width: 2.0, color: Colors.black),
                             const Expanded(flex: 11, child: SizedBox()),
-                            Container(width: 1.5, color: Colors.red.withValues(alpha: 0.2)),
+                            Container(width: 2.0, color: Colors.black),
                             const Expanded(flex: 11, child: SizedBox())
                           ]))),
                   Padding(
@@ -1037,16 +1072,16 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _historyColumn(_bolaItems, 0, 18),
-                            const SizedBox(width: 1),
+                            Container(width: 2.0, color: Colors.black),
                             _historyColumn(_parleItems, 1, 11),
-                            const SizedBox(width: 1),
+                            Container(width: 2.0, color: Colors.black),
                             _historyColumn(_centenaItems, 2, 11)
                           ])),
                 ])),
                 _buildTiroPublicadoPanel(),
               ])),
           Container(
-              padding: const EdgeInsets.only(bottom: 5),
+              padding: EdgeInsets.zero,
               decoration: BoxDecoration(
                 color: const Color(0xFF8B1E1E),
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(25)), 
@@ -1116,7 +1151,7 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
+      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 10),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: readOnly
@@ -1420,8 +1455,61 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
   Widget _historyColumn(ValueNotifier<List<Map<String, dynamic>>> n, int col, int f) => Expanded(flex: f, child: ValueListenableBuilder<int>(valueListenable: _activeField, builder: (ctx, act, _) => ValueListenableBuilder<List<Map<String, dynamic>>>(valueListenable: n, builder: (ctx, list, _) => ListView.builder(controller: col == 0 ? _bolaScroll : (col == 1 ? _parleScroll : _centenaScroll), padding: EdgeInsets.zero, itemCount: list.length, itemExtent: col == 1 ? null : 35, itemBuilder: (ctx, idx) {
     final j = list[idx]; final it = j['valor'] as String, id = j['id'] as int; bool sel = _selectedIds.contains(id), rec = (_lastAddedCol == col && idx < _lastAddedCount);
     bool isWinner = false; if (_tiroResult != null) isWinner = RecaudacionService.calculatePremio(j['tipo'], j['valor'], _tiroResult!, _currentPlan, 'BOTE') > 0;
-    final statusColor = _getSyncStatusColor(j);
-    return GestureDetector(onTap: () { if (_selectedIds.isNotEmpty) setState(() { if (sel) { _selectedIds.remove(id); } else { _selectedIds.add(id); } }); }, onLongPress: () => setState(() { if (sel) { _selectedIds.remove(id); } else { _selectedIds.add(id); } }), child: Container(width: double.infinity, decoration: BoxDecoration(color: sel ? Colors.red.withValues(alpha: 0.25) : (act == col ? Colors.red.withValues(alpha: 0.05) : Colors.transparent), border: Border(bottom: BorderSide(color: sel ? Colors.redAccent : (rec ? Colors.orange : Colors.red.shade100), width: 1.2))), child: Row(children: [if (rec) const Icon(Icons.arrow_right, color: Colors.orange, size: 20), Expanded(child: col == 1 && it.contains('-') ? _parleTile(it, rec || act == col || sel, sel, isWinner, statusColor, !RecaudacionService.isJugadaValida(j)) : Padding(padding: const EdgeInsets.symmetric(horizontal: 4), child: AnimatedBuilder(animation: _blinkController, builder: (context, child) => _jugadaDisplay(it, TextStyle(fontSize: col == 0 ? 15 : 13, fontWeight: FontWeight.bold, decoration: !RecaudacionService.isJugadaValida(j) ? TextDecoration.lineThrough : null, color: sel ? Colors.red.shade900 : (isWinner ? (Color.lerp(Colors.blueAccent, Colors.lightBlueAccent, _blinkController.value)) : statusColor))))), )])));
+    
+    final bool isValid = RecaudacionService.isJugadaValida(j);
+    final int syncStatus = j['sync'] as int? ?? 0;
+    
+    Color rowBgColor = Colors.transparent;
+    if (sel) {
+      rowBgColor = Colors.red.withValues(alpha: 0.35);
+    } else if (!isValid) {
+      rowBgColor = Colors.red.withValues(alpha: 0.4); // Fondo rojo intenso
+    } else if (syncStatus == 1) {
+      rowBgColor = Colors.orange.withValues(alpha: 0.4); // Fondo naranja intenso
+    } else {
+      rowBgColor = Colors.green.withValues(alpha: 0.35); // Fondo verde intenso
+    }
+
+    Color textColor = sel ? Colors.red.shade900 : (isWinner ? Colors.blue.shade800 : Colors.black87);
+
+    return GestureDetector(
+      onTap: () { if (_selectedIds.isNotEmpty) setState(() { if (sel) { _selectedIds.remove(id); } else { _selectedIds.add(id); } }); }, 
+      onLongPress: () => setState(() { if (sel) { _selectedIds.remove(id); } else { _selectedIds.add(id); } }), 
+      child: Container(
+        width: double.infinity, 
+        decoration: BoxDecoration(
+          color: rowBgColor, 
+          border: const Border(
+            top: BorderSide(color: Colors.black, width: 1.0),
+            bottom: BorderSide(color: Colors.black, width: 1.5),
+            left: BorderSide(color: Colors.black, width: 2.5),
+            right: BorderSide(color: Colors.black, width: 2.5),
+          )
+        ), 
+        child: Row(children: [
+          if (rec) const Icon(Icons.arrow_right, color: Colors.orange, size: 20), 
+          Expanded(
+            child: col == 1 && it.contains('-') 
+              ? _parleTile(it, rec || act == col || sel, sel, isWinner, textColor, !isValid) 
+              : Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4), 
+                  child: AnimatedBuilder(
+                    animation: _blinkController, 
+                    builder: (context, child) => _jugadaDisplay(
+                      it, 
+                      TextStyle(
+                        fontSize: col == 0 ? 15 : 13, 
+                        fontWeight: FontWeight.bold, 
+                        decoration: !isValid ? TextDecoration.lineThrough : null, 
+                        color: isWinner ? (Color.lerp(Colors.blueAccent, Colors.lightBlueAccent, _blinkController.value)) : textColor
+                      )
+                    )
+                  )
+                ),
+          )
+        ])
+      )
+    );
   }))));
 
   Widget _jugadaDisplay(String it, TextStyle baseStyle) {
@@ -1454,10 +1542,10 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
     return spans;
   }
 
-  Widget _parleTile(String it, bool hi, bool s, bool isWinner, Color statusColor, bool isInvalid) {
+  Widget _parleTile(String it, bool hi, bool s, bool isWinner, Color textColor, bool isInvalid) {
     int p = it.indexOf('('); String ns = p != -1 ? it.substring(0, p) : it, mon = p != -1 ? it.substring(p) : '';
     TextDecoration? decor = isInvalid ? TextDecoration.lineThrough : null;
-    return Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2), child: IntrinsicHeight(child: Row(children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: ns.split('-').map((n) => AnimatedBuilder(animation: _blinkController, builder: (context, child) => Text(n.trim(), style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, decoration: decor, color: s ? Colors.red.shade900 : (isWinner ? Color.lerp(Colors.blueAccent, Colors.lightBlueAccent, _blinkController.value) : statusColor))))).toList()), const SizedBox(width: 4), SizedBox(width: 12, child: FittedBox(fit: BoxFit.fill, child: AnimatedBuilder(animation: _blinkController, builder: (context, child) => Text('}', style: TextStyle(color: s ? Colors.redAccent : (isWinner ? Color.lerp(Colors.blueAccent, Colors.lightBlueAccent, _blinkController.value) : statusColor), fontWeight: FontWeight.w100))))), const SizedBox(width: 4), Expanded(child: Center(child: AnimatedBuilder(animation: _blinkController, builder: (context, child) => _richTextWithRedX(mon, TextStyle(fontSize: 13, color: s ? Colors.red.shade900 : (isWinner ? Color.lerp(Colors.blueAccent, Colors.lightBlueAccent, _blinkController.value) : statusColor), fontWeight: FontWeight.bold, decoration: decor)))))])));
+    return Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2), child: IntrinsicHeight(child: Row(children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: ns.split('-').map((n) => AnimatedBuilder(animation: _blinkController, builder: (context, child) => Text(n.trim(), style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, decoration: decor, color: s ? Colors.red.shade900 : (isWinner ? Color.lerp(Colors.blueAccent, Colors.lightBlueAccent, _blinkController.value) : textColor))))).toList()), const SizedBox(width: 4), SizedBox(width: 12, child: FittedBox(fit: BoxFit.fill, child: AnimatedBuilder(animation: _blinkController, builder: (context, child) => Text('}', style: TextStyle(color: s ? Colors.redAccent : (isWinner ? Color.lerp(Colors.blueAccent, Colors.lightBlueAccent, _blinkController.value) : textColor), fontWeight: FontWeight.w100))))), const SizedBox(width: 4), Expanded(child: Center(child: AnimatedBuilder(animation: _blinkController, builder: (context, child) => _richTextWithRedX(mon, TextStyle(fontSize: 13, color: s ? Colors.red.shade900 : (isWinner ? Color.lerp(Colors.blueAccent, Colors.lightBlueAccent, _blinkController.value) : textColor), fontWeight: FontWeight.bold, decoration: decor)))))])));
   }
 
   Widget _buildVisor() {
@@ -1466,8 +1554,8 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
 
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 0),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0.5),
       decoration: BoxDecoration(
         color: isGeorgia ? Colors.orange.shade50 : Colors.blue.shade50,
         borderRadius: BorderRadius.circular(8),
@@ -1479,29 +1567,6 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
           ValueNotifier<String> n = act == 0 ? _bolaInput : (act == 1 ? _parleInput : _centenaInput);
           return Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isGeorgia ? Colors.orange.shade800 : Colors.blue.shade800,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    LoteriaIcon(
-                      loteria: _activeLoteria,
-                      size: 14,
-                      borderRadius: 2,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      isGeorgia ? "GA" : "FL",
-                      style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 10),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
               Text(
                 act == 0 ? 'BOLA' : (act == 1 ? 'PARLE' : 'CENTENA'),
                 style: TextStyle(fontWeight: FontWeight.bold, color: themeColor, fontSize: 11),
@@ -1548,7 +1613,7 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
     final sendColor = isGeorgia ? Colors.orange.shade800 : _regentColor;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 0),
       child: Row(
         children: [
           _iSel(0, 'BOLA'),
@@ -1562,7 +1627,7 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
             style: ElevatedButton.styleFrom(
               backgroundColor: sendColor,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
+              padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 12),
             ),
             child: const Icon(Icons.send, color: Colors.white, size: 18),
           ),
@@ -1570,6 +1635,8 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
       ),
     );
   }
+
+
 
   Widget _iSel(int i, String l) {
     const activeColor = Colors.amber;
@@ -1581,7 +1648,7 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
           onTap: () => _activeField.value = i,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(vertical: 6),
+            padding: const EdgeInsets.symmetric(vertical: 4),
             decoration: BoxDecoration(
               color: act == i ? activeColor : Colors.white24,
               borderRadius: BorderRadius.circular(8),
@@ -1601,7 +1668,7 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
   Widget _buildNumericKeypad() {
     const List<String> ks = ['7', '8', '9', '4', '5', '6', '1', '2', '3', 'AL', '0', '.'];
     return Padding(
-      padding: const EdgeInsets.only(left: 5, right: 10, top: 2, bottom: 2),
+      padding: const EdgeInsets.only(left: 5, right: 10, top: 0, bottom: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -1613,9 +1680,9 @@ class _BoteScreenState extends State<BoteScreen> with SingleTickerProviderStateM
               padding: const EdgeInsets.only(right: 10),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
-                mainAxisExtent: 48,
-                mainAxisSpacing: 6,
-                crossAxisSpacing: 6,
+                mainAxisExtent: 49,
+                mainAxisSpacing: 3,
+                crossAxisSpacing: 3,
               ),
               itemCount: ks.length,
               itemBuilder: (ctx, idx) => _buildKeyBtn(ks[idx]),

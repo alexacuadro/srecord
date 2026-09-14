@@ -646,7 +646,12 @@ class _DetallePartesListeroScreenState extends State<DetallePartesListeroScreen>
       decoration: BoxDecoration(
         color: cardBgColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: esBorrador ? Colors.amberAccent : Colors.white38, width: 1.5),
+        border: const Border(
+          top: BorderSide(color: Colors.black, width: 1.5),
+          bottom: BorderSide(color: Colors.black, width: 1.5),
+          left: BorderSide(color: Colors.black, width: 2.5),
+          right: BorderSide(color: Colors.black, width: 2.5),
+        ),
         boxShadow: [
           BoxShadow(color: Colors.black.withValues(alpha: 0.25), offset: const Offset(0, 6), blurRadius: 12),
         ],
@@ -686,12 +691,12 @@ class _DetallePartesListeroScreenState extends State<DetallePartesListeroScreen>
           _buildLoteriaDrawRow(loteria, seccion, tiro, balanceDia, isBancoView: true),
           const SizedBox(height: 8),
           _infoRow("Fondo Anterior", p['fondo_anterior'], isEditable: true, onEdit: () => _editFondoAnterior(p), isLightText: true),
-          const Divider(color: Colors.white24),
+          const Divider(color: Colors.black, thickness: 1.5),
           _infoRow("Limpio Lista", p['limpio_lista'], isLightText: true),
           _infoRow("Premios Lista", p['premios_lista'], isLightText: true),
           _infoRow("Limpio Bote", p['limpio_bote'], isLightText: true),
           _infoRow("Premios Bote", p['premios_bote'], isLightText: true),
-          const Divider(color: Colors.white24),
+          const Divider(color: Colors.black, thickness: 1.5),
           _infoRow("UTILIDAD DEL DÍA", balanceDia.abs(), isBold: true, color: bancoGanaDia ? Colors.lightGreenAccent : Colors.amberAccent, isLightText: true),
           _infoRow("LIQUIDACIÓN (PAGO)", p['liquidacion'] ?? 0.0, isEditable: true, color: Colors.white70, onEdit: () => _editLiquidacion(p), isLightText: true),
           _infoRow("SALDO FINAL ACUMULADO", saldoFinal.abs(), isBold: true, color: bancoGanaTotal ? Colors.lightGreenAccent : Colors.amberAccent, fontSize: 16, isLightText: true),
@@ -844,7 +849,12 @@ class _DetallePartesListeroScreenState extends State<DetallePartesListeroScreen>
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: resultColor.withValues(alpha: 0.3)),
+        border: const Border(
+          top: BorderSide(color: Colors.black, width: 1.0),
+          bottom: BorderSide(color: Colors.black, width: 1.0),
+          left: BorderSide(color: Colors.black, width: 2.5),
+          right: BorderSide(color: Colors.black, width: 2.5),
+        ),
       ),
       child: Row(
         children: [

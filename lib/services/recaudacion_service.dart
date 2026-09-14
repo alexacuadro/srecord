@@ -178,24 +178,138 @@ class RecaudacionService {
     if (pin == "4608pr" || pin == "pp0030") return true; // Pines de prueba/soporte técnico
     if (j['is_cancelled'] == 1 || j['is_cancelled'] == true) return false;
 
-    // 1. Una jugada creada intencionadamente después de vencer el tiempo de gracia es INVÁLIDA
-    if (isJugadaCreatedAfterGracePeriod(j)) return false;
-
-    // 2. Regla Estricta para Listeros:
-    // Si la jugada no se subió a la nube (sync == 1 / Naranja) Y el tiempo de gracia del sorteo YA VENCIÓ,
-    // la jugada NO ES VÁLIDA (Fallo / No enviada a tiempo a la nube antes del cierre).
     final int syncStatus = j['sync'] as int? ?? 0;
-    if (syncStatus == 1) {
-      final String loteria = j['loteria']?.toString() ?? "FLORIDA";
-      final String seccion = j['seccion']?.toString() ?? "DIA";
-      final String fecha = j['fecha']?.toString() ?? "";
 
-      if (isPastGracePeriod(seccion, fecha, loteria: loteria)) {
-        return false; // NO SUMA: Se quedó local y el sorteo cerró sin sincronizarse
+    // Si la jugada ya está sincronizada en la nube (sync == 0 / Verde), 
+    // es una jugada oficial confirmada y NO entra en la regla de expiración por periodo de gracia.
+    if (syncStatus == 0) {
+      return true;
+    }
+
+    // Para jugadas locales pendientes (sync == 1 / Naranja):
+    // 1. Si el tiempo de gracia del sorteo ya venció, no es válida.
+    final String loteria = j['loteria']?.toString() ?? "FLORIDA";
+    final String seccion = j['seccion']?.toString() ?? "DIA";
+    final String fecha = j['fecha']?.toString() ?? "";
+
+    if (isPastGracePeriod(seccion, fecha, loteria: loteria)) {
+      return false; // Se quedó local y el sorteo cerró sin sincronizarse
+    }
+
+    // 2. Si fue creada después del tiempo de gracia, es inválida.
+    if (isJugadaCreatedAfterGracePeriod(j)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  static double calculateRequiredLimpio(List<Map<String, dynamic>> jugadas) {
+    double req = 0;
+    for (var j in jugadas) {
+      if (!isJugadaValida(j)) continue;
+      String valor = j['valor'] ?? '';
+      String tipo = j['tipo'] ?? '';
+      if (tipo == 'BOLA') {
+        List<double> ams = extractBolaAmounts(valor);
+        double f = ams[0];
+        double c = ams[1];
+        req += (f * divFijo) + (c * divCorrido);
+      } else if (tipo == 'PARLE') {
+        double m = extractMoney(valor);
+        int n = valor.split('(').first.split('-').where((s) => s.isNotEmpty).length;
+        double factor = n >= 2 ? (n * (n - 1) / 2) : 1;
+        req += (m * factor * divParle);
+      } else if (tipo == 'CENTENA') {
+        double m = extractMoney(valor);
+        req += (m * divCentena);
+      }
+    }
+    return req;
+  }
+
+  static Map<String, dynamic> analyzePlayByPlayCoverage(List<Map<String, dynamic>> jugadas, double limpioTotal) {
+    Map<String, double> allowanceUsed = {};
+    int totalJugadas = 0;
+    int jugadasRecortadas = 0;
+    Set<String> detallesRecorte = {};
+
+    for (var j in jugadas) {
+      if (!isJugadaValida(j)) continue;
+      totalJugadas++;
+      String tipo = j['tipo'] ?? '';
+      String valor = j['valor'] ?? '';
+      String numsPart = valor.split('(').first.trim();
+      
+      if (tipo == 'BOLA') {
+        List<double> ams = extractBolaAmounts(valor);
+        double f = ams[0];
+        double c = ams[1];
+        
+        if (f > 0) {
+          String key = "BOLA_FIJO_$numsPart";
+          double used = allowanceUsed[key] ?? 0;
+          double maxAllowed = limpioTotal > 0 ? (limpioTotal / divFijo) - used : 0;
+          if (maxAllowed < 0) maxAllowed = 0;
+          if (limpioTotal <= 0 || f > maxAllowed) {
+            jugadasRecortadas++;
+            detallesRecorte.add("Bola");
+          }
+          allowanceUsed[key] = used + (f < maxAllowed ? f : maxAllowed);
+        }
+        if (c > 0) {
+          String key = "BOLA_CORRIDO_$numsPart";
+          double used = allowanceUsed[key] ?? 0;
+          double maxAllowed = limpioTotal > 0 ? (limpioTotal / divCorrido) - used : 0;
+          if (maxAllowed < 0) maxAllowed = 0;
+          if (limpioTotal <= 0 || c > maxAllowed) {
+            jugadasRecortadas++;
+            detallesRecorte.add("Bola");
+          }
+          allowanceUsed[key] = used + (c < maxAllowed ? c : maxAllowed);
+        }
+      } else if (tipo == 'PARLE') {
+        double m = extractMoney(valor);
+        List<String> jugados = numsPart.split('-').map((s) => s.trim()).toList();
+        Map<String, int> betPairsCount = {};
+        for (int i = 0; i < jugados.length; i++) {
+          for (int k = i + 1; k < jugados.length; k++) {
+            String matchingKey = ([jugados[i], jugados[k]]..sort()).join('-');
+            betPairsCount[matchingKey] = (betPairsCount[matchingKey] ?? 0) + 1;
+          }
+        }
+        for (var entry in betPairsCount.entries) {
+          String matchingKey = entry.key;
+          String key = "PARLE_$matchingKey";
+          double used = allowanceUsed[key] ?? 0;
+          double maxAllowed = limpioTotal > 0 ? (limpioTotal / divParle) - used : 0;
+          if (maxAllowed < 0) maxAllowed = 0;
+          if (limpioTotal <= 0 || m > maxAllowed) {
+            jugadasRecortadas++;
+            detallesRecorte.add("Parlé");
+          }
+          allowanceUsed[key] = used + (m < maxAllowed ? m : maxAllowed);
+        }
+      } else if (tipo == 'CENTENA') {
+        double m = extractMoney(valor);
+        String key = "CENTENA_$numsPart";
+        double used = allowanceUsed[key] ?? 0;
+        double maxAllowed = limpioTotal > 0 ? (limpioTotal / divCentena) - used : 0;
+        if (maxAllowed < 0) maxAllowed = 0;
+        if (limpioTotal <= 0 || m > maxAllowed) {
+          jugadasRecortadas++;
+          detallesRecorte.add("Centena");
+        }
+        allowanceUsed[key] = used + (m < maxAllowed ? m : maxAllowed);
       }
     }
 
-    return true; // Si sync == 0 (Subida a tiempo / Verde), es VÁLIDA para siempre
+    return {
+      'total': totalJugadas,
+      'recortadas': jugadasRecortadas,
+      'detalles': detallesRecorte.toList(),
+      'todasCompletas': jugadasRecortadas == 0 && totalJugadas > 0
+    };
   }
 
   static double calculateBruto(List<Map<String, dynamic>> jugadas, String tipo) {

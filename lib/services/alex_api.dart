@@ -142,6 +142,7 @@ class Alex {
   final ValueNotifier<bool> isListeroBlocked = ValueNotifier<bool>(false);
   final ValueNotifier<Map<String, dynamic>?> updateRequired = ValueNotifier<Map<String, dynamic>?>(null);
   final ValueNotifier<double> uploadProgress = ValueNotifier<double>(0.0);
+  final ValueNotifier<Map<String, dynamic>> uploadProgressDetails = ValueNotifier<Map<String, dynamic>>({});
   final async.StreamController<String> _securityController = async.StreamController<String>.broadcast();
   async.Stream<String> get onSecurityViolation => _securityController.stream;
 
@@ -2397,17 +2398,50 @@ class Alex {
 
       debugPrint("[ALEX_UPDATE] Verificando versión global en la nube (Build Actual: $currentBuild)...");
 
-      // Consultar la versión más reciente publicada en Supabase sin filtrar por package_name
-      final res = await _supabase
+      // Consultar todas las actualizaciones publicadas en Supabase
+      final List<dynamic> records = await _supabase
           .from('app_updates')
-          .select()
-          .order('version_code', ascending: false)
-          .limit(1)
-          .maybeSingle();
+          .select();
 
-      if (res != null) {
-        final latestBuild = res['version_code'] as int;
-        
+      if (records.isNotEmpty) {
+        // Purgar versiones antiguas automáticamente si hay más de 5
+        if (records.length > 5) {
+          _cleanupOldUpdates();
+        }
+
+        List<Map<String, dynamic>> validRecords = [];
+        final String currentPkg = packageInfo.packageName;
+
+        for (var r in records) {
+          if (r is Map<String, dynamic>) {
+            final String pkg = r['package_name']?.toString() ?? '';
+            if (pkg.isEmpty || pkg == currentPkg || pkg == 'com.fusionpro.srecord.local' || pkg == 'srecord') {
+              validRecords.add(r);
+            }
+          }
+        }
+        if (validRecords.isEmpty) {
+          validRecords = records.cast<Map<String, dynamic>>();
+        }
+
+        // Ordenar NUMÉRICAMENTE por version_code descendente en Dart
+        validRecords.sort((a, b) {
+          final int codeA = (a['version_code'] is int) 
+              ? a['version_code'] as int 
+              : (int.tryParse(a['version_code']?.toString() ?? '') ?? 0);
+          final int codeB = (b['version_code'] is int) 
+              ? b['version_code'] as int 
+              : (int.tryParse(b['version_code']?.toString() ?? '') ?? 0);
+          return codeB.compareTo(codeA);
+        });
+
+        final res = validRecords.first;
+        final int latestBuild = (res['version_code'] is int)
+            ? res['version_code'] as int
+            : (int.tryParse(res['version_code']?.toString() ?? '') ?? 0);
+
+        debugPrint("[ALEX_UPDATE] Mayor versión en nube: Build $latestBuild vs Local $currentBuild");
+
         if (latestBuild > currentBuild) {
           debugPrint("[ALEX_UPDATE] ¡NUEVA VERSIÓN DETECTADA!: Build $latestBuild (Local es $currentBuild)");
           final vName = res['version_name']?.toString() ?? 'NUEVA';
@@ -2468,6 +2502,23 @@ class Alex {
     }
   }
 
+  static Stream<List<int>> _createHighSpeedFileStream(File file, int chunkSize) async* {
+    final RandomAccessFile raf = await file.open(mode: FileMode.read);
+    final int totalLength = await raf.length();
+    int bytesRead = 0;
+
+    try {
+      while (bytesRead < totalLength) {
+        final int toRead = math.min(chunkSize, totalLength - bytesRead);
+        final List<int> chunk = await raf.read(toRead);
+        bytesRead += chunk.length;
+        yield chunk;
+      }
+    } finally {
+      await raf.close();
+    }
+  }
+
   Future<Map<String, dynamic>> uploadNewUpdate({
     required File file,
     required int versionCode,
@@ -2498,10 +2549,19 @@ class Alex {
 
       debugPrint("[ALEX_UPLOAD] Preparando subida de v$versionCode ($versionName)...");
       uploadProgress.value = 0.0;
+      uploadProgressDetails.value = {
+        'progress': 0.0,
+        'sentBytes': 0,
+        'totalBytes': totalBytes,
+        'mbSent': '0.0',
+        'mbTotal': (totalBytes / (1024 * 1024)).toStringAsFixed(1),
+        'speed': '0.0',
+      };
       
-      final fileName = 'app-release-v$versionCode-${DateTime.now().millisecondsSinceEpoch}.apk';
+      final String fileName = 'app-release-v$versionCode-${DateTime.now().millisecondsSinceEpoch}.apk';
       final String bucket = 'app-updates';
-      
+
+      // 3. SUBIDA A SUPABASE STORAGE A MÁXIMA VELOCIDAD (BUFFER DE ALTA EFICIENCIA 512 KB)
       final String storageUrl = _supabase.storage.url;
       final Map<String, String> uploadHeaders = {
         ..._supabase.storage.headers,
@@ -2515,43 +2575,60 @@ class Alex {
       } else if (!uploadHeaders.containsKey('Authorization')) {
         uploadHeaders['Authorization'] = 'Bearer ${_supabase.auth.headers['apikey']}';
       }
-      
-      final String uploadUrl = '$storageUrl/object/$bucket/$fileName';
 
-      // 3. VELOCIDAD: Subida por ráfagas optimizadas
+      final String uploadUrl = '$storageUrl/object/$bucket/$fileName';
+      final DateTime startTime = DateTime.now();
       int bytesSent = 0;
+
       final request = http.StreamedRequest('POST', Uri.parse(uploadUrl));
       request.headers.addAll(uploadHeaders);
       request.contentLength = totalBytes;
 
-      int lastLoggedProgress = -1;
-      file.openRead().listen(
-        (chunk) {
-          request.sink.add(chunk);
-          bytesSent += chunk.length;
-          if (totalBytes > 0) {
-            final double p = bytesSent / totalBytes;
-            uploadProgress.value = p;
-            
-            final int currentProgress = (p * 100).toInt();
-            if (currentProgress % 5 == 0 && currentProgress != lastLoggedProgress) {
-              debugPrint("[ALEX_UPLOAD] Enviando paquete... $currentProgress%");
-              lastLoggedProgress = currentProgress;
+      // Stream de lectura optimizado en ráfagas de 512 KB para eliminar cuellos de botella en Wi-Fi y Datos
+      final highSpeedStream = _createHighSpeedFileStream(file, 512 * 1024);
+
+      final progressStream = highSpeedStream.transform(
+        async.StreamTransformer<List<int>, List<int>>.fromHandlers(
+          handleData: (List<int> chunk, sink) {
+            bytesSent += chunk.length;
+            sink.add(chunk);
+
+            if (totalBytes > 0) {
+              final double p = (bytesSent / totalBytes).clamp(0.0, 1.0);
+              uploadProgress.value = p;
+
+              final double elapsedMs = DateTime.now().difference(startTime).inMilliseconds.toDouble();
+              final double speedMBs = (elapsedMs > 50) ? ((bytesSent / (1024 * 1024)) / (elapsedMs / 1000.0)) : 0.0;
+
+              uploadProgressDetails.value = {
+                'progress': p,
+                'sentBytes': bytesSent,
+                'totalBytes': totalBytes,
+                'mbSent': (bytesSent / (1024 * 1024)).toStringAsFixed(1),
+                'mbTotal': (totalBytes / (1024 * 1024)).toStringAsFixed(1),
+                'speed': speedMBs.toStringAsFixed(1),
+              };
             }
-          }
-        },
+          },
+        ),
+      );
+
+      final streamSub = progressStream.listen(
+        (chunk) => request.sink.add(chunk),
         onDone: () => request.sink.close(),
         onError: (e) => request.sink.addError(e),
         cancelOnError: true,
       );
 
-      final streamedResponse = await request.send().timeout(const Duration(minutes: 10));
+      final streamedResponse = await request.send().timeout(const Duration(minutes: 15));
       final response = await http.Response.fromStream(streamedResponse);
+      await streamSub.cancel();
 
-      if (response.statusCode != 200) {
-        throw Exception("FALLO DE STORAGE (${response.statusCode}): ${response.body}");
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw Exception("Fallo en Storage (${response.statusCode}): ${response.body}");
       }
 
+      uploadProgress.value = 1.0;
       debugPrint("[ALEX_UPLOAD] Archivo en nube. Registrando en base de datos...");
 
       final String publicUrl = _supabase.storage.from(bucket).getPublicUrl(fileName);
@@ -2568,8 +2645,7 @@ class Alex {
         'created_at': DateTime.now().toUtc().toIso8601String(),
       };
 
-      // Guardar en tabla app_updates para todos los nombres de paquete posibles
-      // garantizando compatibilidad 100% con versiones viejas en la calle
+      // Guardar en tabla app_updates de Supabase
       final packageNamesToUpdate = {
         packageInfo.packageName,
         'com.fusionpro.srecord.local',
@@ -2577,17 +2653,55 @@ class Alex {
         'com.example.srecord',
       };
 
+      bool dbSuccess = false;
+      String? lastDbErr;
+
       for (var pkg in packageNamesToUpdate) {
         if (pkg.isNotEmpty) {
           final rec = Map<String, dynamic>.from(updateRecord);
           rec['package_name'] = pkg;
           try {
-            await _supabase.from('app_updates').upsert(rec, onConflict: 'package_name,version_code');
-          } catch (e) {
-            debugPrint("[ALEX_UPLOAD_PKG_ERR] $pkg: $e");
+            await _supabase.from('app_updates').insert(rec);
+            dbSuccess = true;
+          } catch (insertErr) {
+            final String errStr = insertErr.toString();
+            debugPrint("[ALEX_UPLOAD_INSERT_ERR] $pkg: $errStr");
+            
+            // Si la tabla app_updates en Supabase no tiene columnas opcionales como 'ios_url', probar con campos core esenciales
+            if (errStr.contains('ios_url') || errStr.contains('PGRST204') || errStr.contains('column')) {
+              try {
+                final Map<String, dynamic> coreRec = {
+                  'version_code': versionCode,
+                  'version_name': versionName,
+                  'apk_url': publicUrl,
+                  'package_name': pkg,
+                };
+                if (releaseNotes.isNotEmpty) coreRec['release_notes'] = releaseNotes;
+                await _supabase.from('app_updates').insert(coreRec);
+                dbSuccess = true;
+                continue;
+              } catch (coreErr) {
+                lastDbErr = coreErr.toString();
+                debugPrint("[ALEX_UPLOAD_CORE_ERR] $pkg: $coreErr");
+              }
+            }
+
+            try {
+              await _supabase.from('app_updates').upsert(rec);
+              dbSuccess = true;
+            } catch (upsertErr) {
+              lastDbErr = upsertErr.toString();
+              debugPrint("[ALEX_UPLOAD_PKG_ERR] $pkg: $upsertErr");
+            }
           }
         }
       }
+
+      if (!dbSuccess) {
+        throw Exception("No se pudo registrar la actualización en Supabase BD: $lastDbErr");
+      }
+
+      uploadProgress.value = 1.0;
 
       // ANUNCIO MAESTRO EN TIEMPO REAL VÍA WEBSOCKET A TODAS LAS APPS CONECTADAS
       try {
@@ -2603,6 +2717,9 @@ class Alex {
         debugPrint("[ALEX_UPLOAD_BROADCAST_ERR] $broadcastErr");
       }
 
+      // PURGA AUTOMÁTICA: Mantener únicamente las 5 últimas actualizaciones en la nube
+      await _cleanupOldUpdates();
+
       // Re-ejecutar comprobación local inmediata por si es este mismo dispositivo
       checkAppUpdate(force: true);
 
@@ -2610,9 +2727,160 @@ class Alex {
       return {'success': true, 'url': publicUrl, 'hash': hashString};
     } catch (e) {
       debugPrint("[ALEX_UPLOAD_ERR] $e");
-      return {'success': false, 'error': "ERROR CRÍTICO: ${e.toString()}"};
+      return {'success': false, 'error': "ERROR DE SUBIDA: ${e.toString()}"};
     } finally {
       uploadProgress.value = 0.0;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getCloudUpdates() async {
+    try {
+      final List<dynamic> records = await _supabase
+          .from('app_updates')
+          .select();
+
+      List<Map<String, dynamic>> updates = [];
+      for (var r in records) {
+        if (r is Map<String, dynamic>) {
+          updates.add(r);
+        }
+      }
+
+      updates.sort((a, b) {
+        final int codeA = (a['version_code'] is int)
+            ? a['version_code'] as int
+            : (int.tryParse(a['version_code']?.toString() ?? '') ?? 0);
+        final int codeB = (b['version_code'] is int)
+            ? b['version_code'] as int
+            : (int.tryParse(b['version_code']?.toString() ?? '') ?? 0);
+        return codeB.compareTo(codeA);
+      });
+
+      return updates;
+    } catch (e) {
+      debugPrint("[ALEX_GET_UPDATES_ERR] $e");
+      return [];
+    }
+  }
+
+  Future<bool> deleteCloudUpdate(dynamic id, dynamic versionCode, String? apkUrl) async {
+    try {
+      final String bucket = 'app-updates';
+
+      if (apkUrl != null && apkUrl.contains(bucket)) {
+        try {
+          final Uri uri = Uri.parse(apkUrl);
+          final String fileName = uri.pathSegments.last;
+          if (fileName.isNotEmpty) {
+            await _supabase.storage.from(bucket).remove([fileName]);
+          }
+        } catch (stErr) {
+          debugPrint("[ALEX_DELETE_STORAGE_ERR] $stErr");
+        }
+      }
+
+      if (id != null) {
+        await _supabase.from('app_updates').delete().eq('id', id);
+      } else if (versionCode != null) {
+        await _supabase.from('app_updates').delete().eq('version_code', versionCode);
+      }
+
+      await _cleanupOldUpdates();
+
+      return true;
+    } catch (e) {
+      debugPrint("[ALEX_DELETE_UPDATE_ERR] $e");
+      return false;
+    }
+  }
+
+  Future<void> _cleanupOldUpdates() async {
+    try {
+      debugPrint("[ALEX_CLEANUP] Verificando retención de las 5 últimas versiones en Supabase BD y Storage...");
+      final String bucket = 'app-updates';
+
+      // 1. Obtener todas las versiones de la tabla app_updates
+      final List<dynamic> records = await _supabase
+          .from('app_updates')
+          .select();
+
+      List<Map<String, dynamic>> allUpdates = [];
+      for (var r in records) {
+        if (r is Map<String, dynamic>) {
+          allUpdates.add(r);
+        }
+      }
+
+      // 2. Extraer todos los version_code únicos y ordenarlos numéricamente
+      Set<int> uniqueCodes = {};
+      for (var u in allUpdates) {
+        final int code = (u['version_code'] is int)
+            ? u['version_code'] as int
+            : (int.tryParse(u['version_code']?.toString() ?? '') ?? 0);
+        if (code > 0) uniqueCodes.add(code);
+      }
+
+      List<int> sortedCodes = uniqueCodes.toList()..sort((a, b) => b.compareTo(a)); // Mayor a menor
+
+      // Los primeros 5 códigos son los CONSERVADOS; el resto se PURGAN.
+      final List<int> keptCodes = sortedCodes.take(5).toList();
+      final List<int> purgedCodes = sortedCodes.length > 5 ? sortedCodes.sublist(5) : [];
+
+      // 3. Purgar filas de la BD de versiones fuera del top 5
+      for (int oldCode in purgedCodes) {
+        try {
+          await _supabase.from('app_updates').delete().eq('version_code', oldCode);
+          debugPrint("[ALEX_CLEANUP] BD: Eliminada versión $oldCode.");
+        } catch (dbErr) {
+          debugPrint("[ALEX_CLEANUP_DB_ERR] Error borrando versión $oldCode en BD: $dbErr");
+        }
+      }
+
+      // 4. Obtener las URLs de los APKs que pertenecen a los 5 códigos conservados
+      Set<String> keptFilenames = {};
+      for (var u in allUpdates) {
+        final int code = (u['version_code'] is int)
+            ? u['version_code'] as int
+            : (int.tryParse(u['version_code']?.toString() ?? '') ?? 0);
+        if (keptCodes.contains(code)) {
+          final String? apkUrl = u['apk_url']?.toString();
+          if (apkUrl != null && apkUrl.isNotEmpty) {
+            try {
+              final Uri uri = Uri.parse(apkUrl);
+              final String fileName = uri.pathSegments.last;
+              if (fileName.isNotEmpty) keptFilenames.add(fileName);
+            } catch (_) {}
+          }
+        }
+      }
+
+      // 5. Listar todos los archivos directamente en el bucket de Storage de Supabase
+      try {
+        final List<FileObject> storageObjects = await _supabase.storage.from(bucket).list();
+        List<String> filesToDelete = [];
+
+        for (var obj in storageObjects) {
+          final String fName = obj.name;
+          if (fName.isEmpty || fName == '.emptyFolderPlaceholder') continue;
+
+          // Si el archivo en Storage no coincide con ninguno de los 5 APKs conservados, marcar para borrar
+          if (!keptFilenames.contains(fName)) {
+            filesToDelete.add(fName);
+          }
+        }
+
+        if (filesToDelete.isNotEmpty) {
+          debugPrint("[ALEX_CLEANUP] Eliminando ${filesToDelete.length} archivos antiguos/huérfanos de Storage: $filesToDelete");
+          await _supabase.storage.from(bucket).remove(filesToDelete);
+          debugPrint("[ALEX_CLEANUP] Storage: Purga de archivos completada exitosamente.");
+        } else {
+          debugPrint("[ALEX_CLEANUP] Storage: Todos los archivos corresponden a las 5 versiones activas.");
+        }
+      } catch (stListErr) {
+        debugPrint("[ALEX_CLEANUP_STORAGE_LIST_ERR] Error listando archivos de Storage: $stListErr");
+      }
+    } catch (e) {
+      debugPrint("[ALEX_CLEANUP_ERR] Error durante la purga de versiones viejas: $e");
     }
   }
 
