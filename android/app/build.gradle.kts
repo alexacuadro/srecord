@@ -36,6 +36,17 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias = "srecord"
+            keyPassword = "srecord2026"
+            storeFile = file("release.keystore")
+            storePassword = "srecord2026"
+            isV1SigningEnabled = true
+            isV2SigningEnabled = true
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             signingConfig = signingConfigs.getByName("debug")
@@ -49,7 +60,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
