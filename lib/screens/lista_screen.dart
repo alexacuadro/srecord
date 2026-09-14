@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -73,19 +74,44 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
   Map<String, String>? _lastKnownOpenSession;
   bool _isAtRisk = false;
 
+  double _getRealtimeLimpioTotal() {
+    List<Map<String, dynamic>> allJugadas = [
+      ..._bolaItems.value,
+      ..._parleItems.value,
+      ..._centenaItems.value,
+    ];
+    if (allJugadas.isEmpty) return 0.0;
+
+    Map<String, double> brutos = {
+      "BOLA": RecaudacionService.calculateBruto(allJugadas, "BOLA"),
+      "PARLE": RecaudacionService.calculateBruto(allJugadas, "PARLE"),
+      "CENTENA": RecaudacionService.calculateBruto(allJugadas, "CENTENA"),
+    };
+    final limpiosMap = RecaudacionService.calculateLimpiosMap(brutos, _currentPlan, 'LISTA');
+    final double calculatedLimpio = limpiosMap.values.fold(0.0, (a, b) => a + b);
+
+    return math.max(_limpioTotal.value, calculatedLimpio);
+  }
+
   bool _calculateIsAtRisk() {
     List<Map<String, dynamic>> allJugadas = [
       ..._bolaItems.value,
       ..._parleItems.value,
       ..._centenaItems.value,
     ];
-    final analysis = RecaudacionService.analyzePlayByPlayCoverage(allJugadas, _limpioTotal.value);
-    return (analysis['recortadas'] as int) > 0;
+    if (allJugadas.isEmpty) return false;
+
+    final double clean = _getRealtimeLimpioTotal();
+    final analysis = RecaudacionService.analyzePlayByPlayCoverage(allJugadas, clean);
+    return (analysis['recortadas'] as int? ?? 0) > 0;
   }
 
   int _fgAlertCount = 0;
 
   void _triggerRiskNotification() {
+    // Verificación estricta en TIEMPO REAL previa al disparo para evitar falsas alarmas
+    if (!_calculateIsAtRisk()) return;
+
     try {
       SystemSound.play(SystemSoundType.alert);
       HapticFeedback.heavyImpact();
@@ -101,6 +127,12 @@ class _ListaScreenState extends State<ListaScreen> with SingleTickerProviderStat
   }
 
   void _updateRiskState() {
+    // Sincronizar el valor del limpio en tiempo real antes de evaluar riesgo
+    final double currentClean = _getRealtimeLimpioTotal();
+    if (_limpioTotal.value != currentClean) {
+      _limpioTotal.value = currentClean;
+    }
+
     bool atRisk = _calculateIsAtRisk();
     if (atRisk != _isAtRisk) {
       if (mounted) {

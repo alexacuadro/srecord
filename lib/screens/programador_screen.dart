@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
 import 'dart:async' as async;
 import 'package:file_picker/file_picker.dart';
@@ -699,6 +700,78 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
             ),
           ),
 
+          const SizedBox(height: 25),
+          // SECCIÓN DE COMPARTIR PORTAL MULTIPLATAFORMA
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.share_location, color: Color(0xFF38BDF8), size: 18),
+                    SizedBox(width: 8),
+                    Text("ENLACE OFICIAL DE DESCARGA MULTIPLATAFORMA", style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 0.5)),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text("https://alexacuadro.github.io/srecord/", style: TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Clipboard.setData(const ClipboardData(text: "https://alexacuadro.github.io/srecord/"));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enlace del portal copiado al portapapeles"), backgroundColor: Colors.teal));
+                        },
+                        icon: const Icon(Icons.copy, size: 14, color: Color(0xFF38BDF8)),
+                        label: const Text("COPIAR", style: TextStyle(color: Color(0xFF38BDF8), fontSize: 10, fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF38BDF8)),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _shareViaWhatsApp("https://alexacuadro.github.io/srecord/"),
+                        icon: const Icon(Icons.send, size: 14, color: Colors.white),
+                        label: const Text("WHATSAPP", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF25D366),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _shareViaTelegram("https://alexacuadro.github.io/srecord/"),
+                        icon: const Icon(Icons.telegram, size: 14, color: Colors.white),
+                        label: const Text("TELEGRAM", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0088CC),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
           const SizedBox(height: 35),
           const Divider(color: Colors.white24, thickness: 1),
           const SizedBox(height: 20),
@@ -1012,6 +1085,26 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Error al eliminar versión"), backgroundColor: Colors.redAccent));
         }
       }
+    }
+  }
+
+  Future<void> _shareViaWhatsApp(String url) async {
+    final String text = "Descarga la aplicación oficial S-RECORD aquí:\n$url";
+    final Uri waUri = Uri.parse("https://api.whatsapp.com/send?text=${Uri.encodeComponent(text)}");
+    try {
+      await launchUrl(waUri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint("[SHARE_WA_ERR] $e");
+    }
+  }
+
+  Future<void> _shareViaTelegram(String url) async {
+    final String text = "Descarga la aplicación oficial S-RECORD aquí:";
+    final Uri tgUri = Uri.parse("https://t.me/share/url?url=${Uri.encodeComponent(url)}&text=${Uri.encodeComponent(text)}");
+    try {
+      await launchUrl(tgUri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint("[SHARE_TG_ERR] $e");
     }
   }
 
