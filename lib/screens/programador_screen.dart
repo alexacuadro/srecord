@@ -717,11 +717,17 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
                   children: [
                     Icon(Icons.share_location, color: Color(0xFF38BDF8), size: 18),
                     SizedBox(width: 8),
-                    Text("ENLACE OFICIAL DE DESCARGA MULTIPLATAFORMA", style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 0.5)),
+                    Expanded(
+                      child: Text(
+                        "ENLACE OFICIAL DE DESCARGA MULTIPLATAFORMA", 
+                        style: TextStyle(color: Color(0xFF38BDF8), fontWeight: FontWeight.bold, fontSize: 10.5, letterSpacing: 0.5),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 6),
-                const Text("https://alexacuadro.github.io/srecord/", style: TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+                const Text("https://alexacuadro.github.io/srecord/", style: TextStyle(color: Colors.white, fontSize: 11.5, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -731,37 +737,37 @@ class _ProgramadorScreenState extends State<ProgramadorScreen> with SingleTicker
                           Clipboard.setData(const ClipboardData(text: "https://alexacuadro.github.io/srecord/"));
                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enlace del portal copiado al portapapeles"), backgroundColor: Colors.teal));
                         },
-                        icon: const Icon(Icons.copy, size: 14, color: Color(0xFF38BDF8)),
-                        label: const Text("COPIAR", style: TextStyle(color: Color(0xFF38BDF8), fontSize: 10, fontWeight: FontWeight.bold)),
+                        icon: const Icon(Icons.copy, size: 12, color: Color(0xFF38BDF8)),
+                        label: const Text("COPIAR", style: TextStyle(color: Color(0xFF38BDF8), fontSize: 9.5, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
                         style: OutlinedButton.styleFrom(
                           side: const BorderSide(color: Color(0xFF38BDF8)),
-                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 4),
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () => _shareViaWhatsApp("https://alexacuadro.github.io/srecord/"),
-                        icon: const Icon(Icons.send, size: 14, color: Colors.white),
-                        label: const Text("WHATSAPP", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                        icon: const Icon(Icons.send, size: 12, color: Colors.white),
+                        label: const Text("WHATSAPP", style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF25D366),
-                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 4),
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () => _shareViaTelegram("https://alexacuadro.github.io/srecord/"),
-                        icon: const Icon(Icons.telegram, size: 14, color: Colors.white),
-                        label: const Text("TELEGRAM", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                        icon: const Icon(Icons.telegram, size: 12, color: Colors.white),
+                        label: const Text("TELEGRAM", style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF0088CC),
-                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                       ),
