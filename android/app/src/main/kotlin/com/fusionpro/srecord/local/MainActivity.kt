@@ -1,8 +1,10 @@
 package com.fusionpro.srecord.local
 
+import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -25,8 +27,27 @@ class MainActivity : FlutterActivity() {
                 } else {
                     result.error("INVALID_ARGUMENT", "Ruta de archivo nula", null)
                 }
+            } else if (call.method == "openPlayProtectSettings") {
+                openPlayProtectSettings()
+                result.success(true)
             } else {
                 result.notImplemented()
+            }
+        }
+    }
+
+    private fun openPlayProtectSettings() {
+        try {
+            val intent = Intent("com.google.android.gms.play.protect.ACTION_PLAY_PROTECT_SETTINGS")
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Settings.ACTION_SECURITY_SETTINGS)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+            } catch (e2: Exception) {
+                // Fallback
             }
         }
     }

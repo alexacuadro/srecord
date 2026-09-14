@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -2218,6 +2219,17 @@ class Alex {
   /// Abre los ajustes de la aplicación (Android)
   Future<void> openSettings() async {
      await openAppSettings();
+  }
+
+  /// Abre la pantalla nativa de configuración de Google Play Protect en el teléfono
+  Future<void> openPlayProtectSettings() async {
+    try {
+      final MethodChannel channel = const MethodChannel("com.fusionpro.srecord/apk_info");
+      await channel.invokeMethod("openPlayProtectSettings");
+    } catch (e) {
+      debugPrint("[ALEX_PLAY_PROTECT_ERR] $e");
+      await openAppSettings();
+    }
   }
   
   // NUEVOS MÉTODOS RESTAURADOS
