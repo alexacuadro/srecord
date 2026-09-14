@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:srecord/screens/login_screen.dart';
 import 'package:srecord/screens/comunicados_screen.dart';
 import 'package:srecord/services/alex_api.dart';
+import 'package:srecord/services/core_network.dart';
 import 'package:srecord/services/permission_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ota_update/ota_update.dart';
@@ -106,7 +107,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
   }
 
   Future<void> _checkForUpdate() async {
-    if (!Platform.isAndroid) {
+    if (!Platform.isAndroid || !CoreNetwork().isConnected) {
       _navigateToLogin();
       return;
     }
@@ -116,7 +117,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
     });
 
     try {
-      await Alex().checkAppUpdate(force: true);
+      await Alex().checkAppUpdate(force: true).timeout(const Duration(milliseconds: 1500));
       final updateData = Alex().updateRequired.value;
       
       if (mounted) {
@@ -155,9 +156,7 @@ class _UpdateScreenState extends State<UpdateScreen> {
   }
 
   Future<void> _navigateToLogin() async {
-    debugPrint("[UPDATE_SCREEN] Iniciando transición a Login...");
-    
-    await Future.delayed(const Duration(seconds: 1));
+    debugPrint("[UPDATE_SCREEN] Transición ultrarrápida a Login...");
     
     final comunicado = await Alex().getPendingComunicado();
     

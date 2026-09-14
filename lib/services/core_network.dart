@@ -55,43 +55,24 @@ class CoreNetwork {
   /// Inicia el túnel ofuscado (VLESS/VMess/Trojan over TLS)
   /// Simula el tráfico HTTPS estándar en el puerto 443.
   Future<bool> initializeTunnel() async {
-    debugPrint("[CORE NETWORK] Iniciando Handshake del Túnel Previo (VLESS/TLS/WS)...");
-    
+    debugPrint("[CORE NETWORK] Inicializando estado de red ultrarrápido...");
     try {
-      // En Android, esto activaría el VpnService nativo. 
-      // Por ahora, validamos si podemos llegar a la infraestructura crítica.
-      
       bool reachable = await _verifyCriticalInfrastructure();
-      
-      if (!reachable) {
-        debugPrint("[CORE NETWORK] Infraestructura crítica inaccesible. Activando modo Evasión DPI...");
-        // Simulamos rotación de nodos ofuscados
-        await Future.delayed(const Duration(seconds: 2));
-      }
-
-      // Handshake ofuscado
-      await Future.delayed(const Duration(milliseconds: 1500)); 
-      
       final oldStatus = _isConnected;
-      _isConnected = true;
-      if (!oldStatus) _statusController.add(true);
-      
-      debugPrint("[CORE NETWORK] Túnel establecido con éxito: Tráfico ofuscado en puerto 443.");
-      return true;
+      _isConnected = reachable;
+      if (oldStatus != reachable) _statusController.add(reachable);
+      debugPrint("[CORE NETWORK] Estado de red inicializado: ${_isConnected ? 'ONLINE' : 'OFFLINE'}");
+      return _isConnected;
     } catch (e) {
-      debugPrint("[CORE NETWORK] ERROR CRÍTICO en Handshake de Evasión: $e");
-      final oldStatus = _isConnected;
       _isConnected = false;
-      if (oldStatus) _statusController.add(false);
       return false;
     }
   }
 
   Future<bool> _verifyCriticalInfrastructure() async {
     try {
-      // Intentamos resolver el host de Supabase configurado en el sistema
       final result = await InternetAddress.lookup('vonuhrbjchufqzqygqgt.supabase.co')
-          .timeout(const Duration(seconds: 3));
+          .timeout(const Duration(milliseconds: 1000));
       return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
     } catch (_) {
       return false;

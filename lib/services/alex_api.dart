@@ -651,11 +651,10 @@ class Alex {
   }
 
   Future<void> _performInitialAudit() async {
-    await Future.delayed(const Duration(seconds: 2));
     final bancoId = await getActiveBancoId();
-    if (bancoId != "UNKNOWN") {
+    if (bancoId != null && bancoId != "UNKNOWN") {
       debugPrint("[ALEX_AUDIT] Restaurando canales de tiempo real para: $bancoId");
-      await initRealtimeChannels(bancoId);
+      initRealtimeChannels(bancoId);
       
       if (isBrainOnline()) {
         debugPrint("[ALEX_AUDIT] Iniciando Paridad Total de Arranque...");
@@ -2008,40 +2007,42 @@ class Alex {
 
       debugPrint("[ALEX] Buscando comunicados para Banco: $bancoId, Identidad: $identity");
 
-      // 1. PRIORIDAD A: Comunicados Generales (Supabase) - AISLADO EN TRY
-      try {
-        // Buscamos el último comunicado activo (Filtrado robusto para int4 o boolean)
-        final res = await _supabase
-            .from('comunicados')
-            .select()
-            .eq('banco_id', bancoId)
-            .eq('activo', 1)
-            .order('created_at', ascending: false)
-            .limit(1)
-            .maybeSingle();
-
-        if (res != null) {
-          final comId = res['id'];
-
-          final List<dynamic> leidoRes = await _supabase
-              .from('comunicados_leidos')
+      // 1. PRIORIDAD A: Comunicados Generales (Supabase) - solo si hay red
+      if (CoreNetwork().isConnected) {
+        try {
+          final res = await _supabase
+              .from('comunicados')
               .select()
-              .eq('comunicado_id', comId)
-              .eq('listero_pin', identity)
-              .limit(1);
+              .eq('banco_id', bancoId)
+              .eq('activo', 1)
+              .order('created_at', ascending: false)
+              .limit(1)
+              .maybeSingle()
+              .timeout(const Duration(milliseconds: 1000));
 
-          if (leidoRes.isEmpty) {
-            debugPrint("[ALEX] Comunicado general pendiente encontrado: ${res['titulo']}");
-            // Mapear campos para asegurar consistencia
-            final Map<String, dynamic> cleanRes = Map.from(res);
-            if (cleanRes['mensaje'] == null) {
-               cleanRes['mensaje'] = cleanRes['contenido'] ?? cleanRes['texto'] ?? cleanRes['titulo'];
+          if (res != null) {
+            final comId = res['id'];
+
+            final List<dynamic> leidoRes = await _supabase
+                .from('comunicados_leidos')
+                .select()
+                .eq('comunicado_id', comId)
+                .eq('listero_pin', identity)
+                .limit(1)
+                .timeout(const Duration(milliseconds: 1000));
+
+            if (leidoRes.isEmpty) {
+              debugPrint("[ALEX] Comunicado general pendiente encontrado: ${res['titulo']}");
+              final Map<String, dynamic> cleanRes = Map.from(res);
+              if (cleanRes['mensaje'] == null) {
+                 cleanRes['mensaje'] = cleanRes['contenido'] ?? cleanRes['texto'] ?? cleanRes['titulo'];
+              }
+              return {...cleanRes, 'is_local': false}; 
             }
-            return {...cleanRes, 'is_local': false}; 
           }
+        } catch (e) {
+          debugPrint("[ALEX_REMOTE_COMU_ERR] Error consultando comunicados nube: $e");
         }
-      } catch (e) {
-        debugPrint("[ALEX_REMOTE_COMU_ERR] Error consultando comunicados nube: $e");
       }
 
       // 2. PRIORIDAD B: Notificaciones Directas (Buzón) que son OFICIALES
@@ -2385,7 +2386,11 @@ class Alex {
   DateTime? _lastUpdateCheck;
 
   Future<void> checkAppUpdate({bool force = false}) async {
-    // Evitar checar muy seguido a menos que sea forzado
+    if (!CoreNetwork().isConnected) {
+      debugPrint("[ALEX_UPDATE] Modo OFFLINE: Omite comprobación de versión.");
+      return;
+    }
+
     if (!force && _lastUpdateCheck != null && 
         DateTime.now().difference(_lastUpdateCheck!).inMinutes < 2) {
       return;
@@ -2398,10 +2403,11 @@ class Alex {
 
       debugPrint("[ALEX_UPDATE] Verificando versión global en la nube (Build Actual: $currentBuild)...");
 
-      // Consultar todas las actualizaciones publicadas en Supabase
+      // Consultar todas las actualizaciones publicadas en Supabase con timeout de 1.2s
       final List<dynamic> records = await _supabase
           .from('app_updates')
-          .select();
+          .select()
+          .timeout(const Duration(milliseconds: 1200));
 
       if (records.isNotEmpty) {
         // Purgar versiones antiguas automáticamente si hay más de 5
