@@ -2234,6 +2234,7 @@ class Alex {
   
   // NUEVOS MÉTODOS RESTAURADOS
   
+  static const MethodChannel _apkChannel = MethodChannel("com.fusionpro.srecord/apk_info");
   final ValueNotifier<OtaEvent?> downloadProgress = ValueNotifier<OtaEvent?>(null);
 
   Future<void> downloadAndInstallApk(String url, {int? versionCode}) async {
@@ -2282,13 +2283,28 @@ class Alex {
     }
 
     try {
-      // MOTOR RESILIENTE PARA CUBA: Descarga reanudable por ráfagas con reintentos infinitos
+      // MOTOR RESILIENTE PARA CUBA: Descarga reanudable por ráfagas con reintentos infinitos y validación de integridad
       bool downloadSuccess = await _resumableApkDownloadWithRetry(url, apkFileName);
 
       if (downloadSuccess) {
         debugPrint("[ALEX_CUBA_OTA] Descarga 100% completada e íntegra ($apkFileName). Lanzando instalador Android...");
         downloadProgress.value = OtaEvent(OtaStatus.INSTALLING, "100");
         
+        final String localPath = "/storage/emulated/0/Download/$apkFileName";
+
+        // 1. Intentar instalación NATIVA directa usando FileProvider + Intent ACTION_VIEW
+        try {
+          final bool nativeSuccess = await _apkChannel.invokeMethod("installApk", {"path": localPath});
+          if (nativeSuccess) {
+            debugPrint("[ALEX_OTA] Instalador nativo lanzado con éxito para $localPath.");
+            _isDownloadingApk = false;
+            return;
+          }
+        } catch (e) {
+          debugPrint("[ALEX_OTA] Falló lanzamiento de instalador nativo ($e). Usando ota_update como fallback...");
+        }
+
+        // 2. Fallback a ota_update si el método nativo no funcionó
         OtaUpdate().execute(url, destinationFilename: apkFileName).listen(
           (OtaEvent event) {
             downloadProgress.value = event;
@@ -2337,11 +2353,17 @@ class Alex {
           totalBytes = int.tryParse(headReq.headers['content-length'] ?? '') ?? 0;
         } catch (_) {}
 
-        // Si la descarga ya estaba completa al 100%
-        if (totalBytes > 0 && existingBytes >= totalBytes) {
-          debugPrint("[ALEX_CUBA_OTA] El archivo ya existía completo en disco ($existingBytes bytes).");
-          downloadProgress.value = OtaEvent(OtaStatus.DOWNLOADING, "100");
-          return true;
+        // Verificar si el archivo ya existía y es un APK completo e íntegro
+        if (existingBytes > 1024 * 1024) { // mayor a 1MB
+          if (await _isApkValid(localFile, totalBytes)) {
+            debugPrint("[ALEX_CUBA_OTA] El APK existente en disco es 100% válido e íntegro ($existingBytes bytes).");
+            downloadProgress.value = OtaEvent(OtaStatus.DOWNLOADING, "100");
+            return true;
+          } else if (totalBytes > 0 && existingBytes >= totalBytes) {
+            debugPrint("[ALEX_CUBA_OTA] El APK en disco alcanzaba $existingBytes bytes pero falló la validación. Recreando...");
+            try { await localFile.delete(); } catch (_) {}
+            existingBytes = 0;
+          }
         }
 
         debugPrint("[ALEX_CUBA_OTA] Solicitando rango HTTP: bytes=$existingBytes- ($existingBytes / ${totalBytes > 0 ? totalBytes : 'desconocido'})");
@@ -2352,20 +2374,33 @@ class Alex {
         }
 
         final client = http.Client();
-        final response = await client.send(request).timeout(const Duration(seconds: 15));
+        final response = await client.send(request).timeout(const Duration(seconds: 25));
 
-        if (response.statusCode != 200 && response.statusCode != 206) {
+        // Manejo estricto del código de estado HTTP:
+        // Si responde 200 (OK completo), NO es parcial; se debe sobrescribir el archivo desde byte 0.
+        // Si responde 206 (Partial Content), se añade (append).
+        final bool isPartial = response.statusCode == 206;
+
+        if (response.statusCode == 200) {
           if (existingBytes > 0) {
+            debugPrint("[ALEX_CUBA_OTA] Servidor no devolvió 206 Partial Content (devuelve HTTP 200). Reiniciando desde byte 0.");
             try { await localFile.delete(); } catch (_) {}
             existingBytes = 0;
           }
+        } else if (!isPartial) {
+          debugPrint("[ALEX_CUBA_OTA] Código HTTP no esperado: ${response.statusCode}. Reseteando archivo...");
+          if (await localFile.exists()) {
+            try { await localFile.delete(); } catch (_) {}
+          }
+          existingBytes = 0;
+          throw Exception("HTTP Status ${response.statusCode}");
         }
 
         if (totalBytes <= 0) {
-          totalBytes = (response.contentLength ?? 0) + existingBytes;
+          totalBytes = isPartial ? ((response.contentLength ?? 0) + existingBytes) : (response.contentLength ?? 0);
         }
 
-        final sink = localFile.openWrite(mode: existingBytes > 0 ? FileMode.append : FileMode.write);
+        final sink = localFile.openWrite(mode: isPartial && existingBytes > 0 ? FileMode.append : FileMode.write);
         
         await for (var chunk in response.stream) {
           sink.add(chunk);
@@ -2382,9 +2417,14 @@ class Alex {
         await sink.close();
         client.close();
 
-        if (totalBytes <= 0 || existingBytes >= totalBytes) {
+        // Validar la integridad binaria y parseo de Android antes de dar por completado
+        if (await _isApkValid(localFile, totalBytes)) {
           downloadProgress.value = OtaEvent(OtaStatus.DOWNLOADING, "100");
           return true;
+        } else {
+          debugPrint("[ALEX_CUBA_OTA] Descarga finalizada pero el APK no pasó la prueba de integridad. Reintentando descarga limpia...");
+          try { await localFile.delete(); } catch (_) {}
+          retries++;
         }
       } catch (e) {
         retries++;
@@ -2393,6 +2433,54 @@ class Alex {
       }
     }
     return false;
+  }
+
+  /// Verifica la validez binaria del APK (Magic Bytes 'PK\x03\x04' de archivo ZIP y PackageManager nativo)
+  Future<bool> _isApkValid(File file, int expectedTotalBytes) async {
+    try {
+      if (!await file.exists()) return false;
+      final int len = await file.length();
+      if (len < 1024 * 1024) {
+        debugPrint("[ALEX_APK_VALIDATE] Tamaño de APK sospechosamente pequeño ($len bytes).");
+        return false;
+      }
+
+      if (expectedTotalBytes > 0 && len < (expectedTotalBytes - 2048)) {
+        debugPrint("[ALEX_APK_VALIDATE] Tamaño incompleto: $len / $expectedTotalBytes bytes.");
+        return false;
+      }
+
+      // 1. Validar los Magic Bytes del encabezado ZIP ('PK\x03\x04' -> [0x50, 0x4B, 0x03, 0x04])
+      final RandomAccessFile raf = await file.open(mode: FileMode.read);
+      final List<int> header = await raf.read(4);
+      await raf.close();
+
+      if (header.length < 4 ||
+          header[0] != 0x50 ||
+          header[1] != 0x4B ||
+          header[2] != 0x03 ||
+          header[3] != 0x04) {
+        debugPrint("[ALEX_APK_VALIDATE] Encabezado inválido: no es un archivo ZIP/APK (encontrado: $header).");
+        return false;
+      }
+
+      // 2. Probar si Android nativo (PackageManager.getPackageArchiveInfo) puede interpretar el APK
+      try {
+        final info = await _apkChannel.invokeMethod("getApkInfo", {"path": file.path});
+        if (info == null) {
+          debugPrint("[ALEX_APK_VALIDATE] PackageManager.getPackageArchiveInfo retornó NULL (APK corrupto).");
+          return false;
+        }
+        debugPrint("[ALEX_APK_VALIDATE] APK verificado por PackageManager nativo: ${info['versionName']} (${info['versionCode']})");
+      } catch (e) {
+        debugPrint("[ALEX_APK_VALIDATE] Comprobación getApkInfo omitida o no disponible: $e");
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint("[ALEX_APK_VALIDATE_ERR] $e");
+      return false;
+    }
   }
 
   DateTime? _lastUpdateCheck;
